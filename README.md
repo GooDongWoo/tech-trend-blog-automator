@@ -20,7 +20,7 @@ Most AI-generated blog posts sound robotic, predictable, and devoid of personali
 
 ## 🏗️ Architecture
 
-![Architecture Diagram](docs/architecture-diagram.svg)
+![Architecture Diagram](docs/architecture-diagram.png)
 
 > 💡 **Interactive Architecture Viewer**: Open [`docs/architecture.html`](docs/architecture.html) in your browser to explore the diagram interactively with zoom, pan, focus views, and dark/light mode!
 
