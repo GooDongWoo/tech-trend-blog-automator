@@ -1,0 +1,238 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Tech Trend Curation & Anti-AI Blog Automator",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "interest-and-collection",
+        "label": "Interest Profiling & Trend Collection",
+        "focus": ["obsidian_vault", "qdrant_rag", "profiler", "trend_sources", "curator", "gemini_llm"],
+        "note": "Scans Obsidian notes and RAG depth to filter beginner topics, then matches 6 trend feeds using Gemini 3.8 Flash."
+      },
+      {
+        "id": "telegram-selection",
+        "label": "Telegram Briefing & User Approval",
+        "focus": ["curator", "telegram_bot", "user_client", "writer"],
+        "note": "Delivers 5 curated topics to Telegram, awaits user selection, and generates draft for review."
+      },
+      {
+        "id": "publishing-and-sync",
+        "label": "Publishing & Obsidian Sync",
+        "focus": ["writer", "blog_repo", "obsidian_vault"],
+        "note": "Deploys to GitHub Pages upon user approval and syncs back a knowledge note to Obsidian."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "obsidian_vault",
+      "type": "database",
+      "label": "Obsidian Vault",
+      "sublabel": "Diaries & Projects",
+      "pos": [40, 120],
+      "size": [150, 60]
+    },
+    {
+      "id": "qdrant_rag",
+      "type": "database",
+      "label": "Qdrant Vector DB",
+      "sublabel": "RAG Daemon :8765",
+      "pos": [40, 260],
+      "size": [150, 60]
+    },
+    {
+      "id": "trend_sources",
+      "type": "external",
+      "label": "6 Trend Feeds",
+      "sublabel": "GH/HN/GeekNews/Reddit",
+      "pos": [40, 400],
+      "size": [150, 60]
+    },
+    {
+      "id": "gemini_llm",
+      "type": "cloud",
+      "label": "Gemini 3.8 Flash",
+      "sublabel": "Reasoning & Content API",
+      "pos": [290, 120],
+      "size": [150, 60]
+    },
+    {
+      "id": "profiler",
+      "type": "backend",
+      "label": "Interest Profiler",
+      "sublabel": "Vault Scanner & Depth",
+      "pos": [290, 260],
+      "size": [150, 60]
+    },
+    {
+      "id": "curator",
+      "type": "backend",
+      "label": "5-Topic Curator",
+      "sublabel": "Scoring & Ranking",
+      "pos": [290, 400],
+      "size": [150, 60]
+    },
+    {
+      "id": "telegram_bot",
+      "type": "messagebus",
+      "label": "Telegram Bot",
+      "sublabel": "Daily Briefing :08:30",
+      "pos": [540, 260],
+      "size": [150, 60]
+    },
+    {
+      "id": "user_client",
+      "type": "frontend",
+      "label": "User Device",
+      "sublabel": "Telegram Interactive App",
+      "pos": [540, 400],
+      "size": [150, 60]
+    },
+    {
+      "id": "writer",
+      "type": "backend",
+      "label": "Anti-AI Blog Writer",
+      "sublabel": "Deep Scraper & Memes",
+      "pos": [790, 260],
+      "size": [150, 60]
+    },
+    {
+      "id": "blog_repo",
+      "type": "cloud",
+      "label": "GitHub Pages",
+      "sublabel": "Jekyll Blog & Deploy",
+      "pos": [790, 400],
+      "size": [150, 60]
+    }
+  ],
+  "connections": [
+    {
+      "id": "vault-to-profiler",
+      "from": "obsidian_vault",
+      "to": "profiler",
+      "label": "notes",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "rag-to-profiler",
+      "from": "qdrant_rag",
+      "to": "profiler",
+      "label": "depth",
+      "fromSide": "right",
+      "toSide": "left",
+      "labelDx": -25
+    },
+    {
+      "id": "trends-to-curator",
+      "from": "trend_sources",
+      "to": "curator",
+      "label": "raw trends",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "profiler-to-gemini",
+      "from": "profiler",
+      "to": "gemini_llm",
+      "label": "interests",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "id": "profiler-to-curator",
+      "from": "profiler",
+      "to": "curator",
+      "label": "profile",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 24
+    },
+    {
+      "id": "curator-to-telegram",
+      "from": "curator",
+      "to": "telegram_bot",
+      "label": "top 5",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "telegram-to-user",
+      "from": "telegram_bot",
+      "to": "user_client",
+      "label": "briefing",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 24
+    },
+    {
+      "id": "user-to-writer",
+      "from": "user_client",
+      "to": "writer",
+      "label": "select topic",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "telegram-to-writer",
+      "from": "telegram_bot",
+      "to": "writer",
+      "label": "trigger",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "writer-to-blog",
+      "from": "writer",
+      "to": "blog_repo",
+      "label": "git push",
+      "variant": "emphasis",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 24
+    },
+    {
+      "id": "writer-to-vault",
+      "from": "writer",
+      "to": "obsidian_vault",
+      "label": "sync note",
+      "variant": "dashed",
+      "fromSide": "top",
+      "toSide": "top"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Interest & Depth Profiling",
+      "items": [
+        "Obsidian Vault scanner inspects recent daily notes and projects",
+        "Qdrant RAG verifies existing depth to filter out beginner tutorials",
+        "Gemini 3.8 Flash extracts structured interest keywords"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Trend Aggregation & Telegram Gate",
+      "items": [
+        "Async scraping across 6 channels: GeekNews, GitHub, HN, Reddit, HF, ArXiv",
+        "Top 5 curated cards sent to Telegram daily at 08:30",
+        "Interactive inline buttons for one-tap topic selection"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Anti-AI Authoring & Publishing",
+      "items": [
+        "Deep web scraping of official GitHub READMEs and documentation",
+        "Humorous developer voice with memes and Mermaid architecture",
+        "Strict human-in-the-loop review before Git Push to GitHub Pages",
+        "Automatic bidirectional sync to Obsidian knowledge base"
+      ]
+    }
+  ]
+}
