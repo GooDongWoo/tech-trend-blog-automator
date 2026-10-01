@@ -39,14 +39,17 @@ class DeepResearcher:
                 try:
                     resp = await client.get(url)
                     if resp.status_code == 200:
-                        soup = BeautifulSoup(resp.text, "html.parser")
-                        # Remove script/style/nav/footer
-                        for tag in soup(["script", "style", "nav", "footer", "header", "noscript"]):
-                            tag.decompose()
-                        text = soup.get_text(separator="\n")
-                        # Clean multiple blank lines
-                        lines = [l.strip() for l in text.split("\n") if l.strip()]
-                        content_text = "\n".join(lines[:120])
+                        if url.lower().endswith(".pdf"):
+                            content_text = f"PDF Whitepaper: {topic.title}\nSummary: {topic.one_line_summary}\nSuggested Angle: {topic.suggested_angle}"
+                        else:
+                            soup = BeautifulSoup(resp.text, "html.parser")
+                            # Remove script/style/nav/footer
+                            for tag in soup(["script", "style", "nav", "footer", "header", "noscript"]):
+                                tag.decompose()
+                            text = soup.get_text(separator="\n")
+                            # Clean multiple blank lines
+                            lines = [l.strip() for l in text.split("\n") if l.strip()]
+                            content_text = "\n".join(lines[:120])
                 except Exception as e:
                     print(f"[DeepResearcher] Failed to scrape {url}: {e}")
 

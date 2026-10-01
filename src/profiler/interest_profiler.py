@@ -31,7 +31,15 @@ class InterestProfiler:
         if settings.gemini_api_key:
             from google import genai
             client = genai.Client(api_key=settings.gemini_api_key)
-            models_to_try = [settings.gemini_model, "gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash"]
+            models_to_try = [
+                settings.gemini_model,
+                "gemini-3.8-flash",
+                "gemini-3.7-flash",
+                "gemini-3.6-flash",
+                "gemini-3.5-flash-lite",
+                "gemini-3.1-flash-lite",
+                "gemini-flash-latest",
+            ]
             # Deduplicate while preserving order
             models_to_try = list(dict.fromkeys(models_to_try))
             for model_name in models_to_try:

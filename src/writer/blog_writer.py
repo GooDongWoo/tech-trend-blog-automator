@@ -23,18 +23,30 @@ class BlogWriter:
         if settings.gemini_api_key:
             from google import genai
             client = genai.Client(api_key=settings.gemini_api_key)
-            models_to_try = [settings.gemini_model, "gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash"]
+            models_to_try = [
+                settings.gemini_model,
+                "gemini-3.8-flash",
+                "gemini-3.7-flash",
+                "gemini-3-flash-preview",
+                "gemini-3.6-flash",
+                "gemini-3.5-flash-lite",
+                "gemini-3.1-flash-lite",
+                "gemini-flash-latest",
+            ]
             models_to_try = list(dict.fromkeys(models_to_try))
+            import time
             for model_name in models_to_try:
-                try:
-                    response = client.models.generate_content(
-                        model=model_name,
-                        contents=prompt
-                    )
-                    if response.text:
-                        return response.text
-                except Exception as e:
-                    print(f"[BlogWriter] Gemini {model_name} failed: {e}. Trying next fallback...")
+                for attempt in range(3):
+                    try:
+                        response = client.models.generate_content(
+                            model=model_name,
+                            contents=prompt
+                        )
+                        if response.text:
+                            return response.text
+                    except Exception as e:
+                        print(f"[BlogWriter] Gemini {model_name} failed: {e}. Trying next fallback...")
+                        break
 
 
 

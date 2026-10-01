@@ -36,9 +36,18 @@ class GitPublisher:
                 check=True
             )
 
-            # 3. git push
+            # 3. git push to current branch
+            branch_res = subprocess.run(
+                ["git", "branch", "--show-current"],
+                cwd=self.repo_path,
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            branch = branch_res.stdout.strip() or "master"
+
             push_res = subprocess.run(
-                ["git", "push", "origin", "main"],
+                ["git", "push", "origin", branch],
                 cwd=self.repo_path,
                 capture_output=True,
                 text=True,
