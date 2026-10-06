@@ -1,24 +1,72 @@
+"""Traceable user interests; notes and LLM output never establish expertise."""
+import hashlib
 import json
-import os
 from pathlib import Path
-from typing import List, Dict, Any, Optional
-from pydantic import BaseModel, Field
+from typing import List, Dict, Optional
+
+from pydantic import BaseModel, Field, field_validator
 
 from config import settings
+from src.editorial.models import SourceRecord, UserContext, UserStatement, VaultNoteRef
 from .daily_scanner import DailyScanner
 from .rag_checker import RAGChecker
 
 
+def build_user_context(*, statements=(), note_results=(), run_logs=()) -> UserContext:
+    """Use inspectable note references for interest; attach experience explicitly."""
+    statements = tuple(UserStatement.model_validate(item) for item in statements)
+    notes, diagnostics = [], []
+    for item in note_results:
+        try:
+            path = Path(item["path"]).resolve()
+            raw = path.read_bytes()
+            text = raw.decode("utf-8")
+            digest = hashlib.sha256(raw).hexdigest()
+            if item.get("sha256") and item["sha256"] != digest:
+                diagnostics.append("note_snapshot_changed")
+                continue
+            if not text.strip():
+                raise ValueError("empty note")
+            snippet = item.get("snippet", text[:300]).strip()
+            if not snippet or snippet not in text:
+                snippet = text[:300].strip()
+            notes.append(VaultNoteRef(path=path, sha256=digest,
+                title=path.stem, snippet=snippet,
+                retrieval_method=item.get("retrieval_method", "note_scan")))
+            if item.get("daemon_status") == "unavailable":
+                diagnostics.append("daemon_unavailable:local_search")
+        except (OSError, UnicodeError, KeyError, ValueError):
+            diagnostics.append("note_unavailable")
+    public = tuple(item for item in statements if item.category == "experience" and item.publication_allowed)
+    run_logs = tuple(SourceRecord.model_validate(item) for item in run_logs)
+    if not notes and not statements and not run_logs:
+        diagnostics.append("profile_evidence_absent")
+    return UserContext(goals=tuple(item.text for item in statements if item.category == "goal"),
+        constraints=tuple(item.text for item in statements if item.category == "constraint"),
+        interests=tuple(dict.fromkeys([*(item.text for item in statements if item.category == "interest"), *(note.title for note in notes)])),
+        statements=statements, note_refs=tuple(notes), experience_refs=run_logs,
+        published_experience=public, depth="documented" if run_logs or public else "unknown",
+        diagnostics=tuple(dict.fromkeys(diagnostics)))
+
+
 class UserProfile(BaseModel):
-    core_interests: List[str] = Field(description="최근 집중하고 있는 핵심 기술/학습 주제 목록")
-    knowledge_depth: Dict[str, str] = Field(description="주제별 사용자가 이미 보유한 지식 수준 및 구현 경험 요약")
-    avoid_topics: List[str] = Field(description="이미 숙지하여 추천에서 제외해야 할 기초/입문용 주제")
-    target_domains: List[str] = Field(description="관심 있는 주요 기술 분야 (예: AI Agent, Memory Optimization 등)")
-    search_keywords: List[str] = Field(description="트렌드 검색에 직접 사용할 수 있는 영문/한글 키워드 목록")
+    core_interests: List[str]
+    knowledge_depth: Dict[str, str]
+    avoid_topics: List[str]
+    target_domains: List[str]
+    search_keywords: List[str]
+    user_context: UserContext = Field(default_factory=UserContext)
+
+    @field_validator("knowledge_depth")
+    @classmethod
+    def unproven_depth_is_unknown(cls, value):
+        # Legacy JSON and model prose cannot declare user expertise. Explicit
+        # experience is available separately through user_context provenance.
+        return {topic: "unknown" for topic in value} or {"overall": "unknown"}
 
 
 class InterestProfiler:
-    """Extracts user interests from recent notes and evaluates knowledge depth via RAG."""
+    """Extract interests from referenced notes; experience requires explicit input."""
 
     def __init__(self, vault_path: Optional[Path] = None, daemon_url: Optional[str] = None):
         self.vault_path = vault_path or settings.obsidian_vault_path
@@ -27,135 +75,58 @@ class InterestProfiler:
         self.rag = RAGChecker(self.vault_path, self.daemon_url)
 
     def _call_llm(self, prompt: str) -> str:
-        """Call LLM via Gemini or OpenAI."""
         if settings.gemini_api_key:
             from google import genai
             client = genai.Client(api_key=settings.gemini_api_key)
-            models_to_try = [
-                settings.gemini_model,
-                "gemini-3.8-flash",
-                "gemini-3.7-flash",
-                "gemini-3.6-flash",
-                "gemini-3.5-flash-lite",
-                "gemini-3.1-flash-lite",
-                "gemini-flash-latest",
-            ]
-            # Deduplicate while preserving order
-            models_to_try = list(dict.fromkeys(models_to_try))
-            for model_name in models_to_try:
+            models_to_try = list(dict.fromkeys([settings.gemini_model, "gemini-3.8-flash",
+                "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite",
+                "gemini-3.1-flash-lite", "gemini-flash-latest"]))
+            for model in models_to_try:
                 try:
-                    response = client.models.generate_content(
-                        model=model_name,
-                        contents=prompt
-                    )
+                    response = client.models.generate_content(model=model, contents=prompt)
                     if response.text:
                         return response.text
-                except Exception as e:
-                    print(f"[InterestProfiler] Gemini {model_name} failed: {e}. Trying next fallback...")
-
-
-
+                except Exception as error:
+                    print(f"[InterestProfiler] Gemini {model} failed: {error}")
         if settings.openai_api_key:
             try:
                 from openai import OpenAI
-                client = OpenAI(api_key=settings.openai_api_key)
-                response = client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=[{"role": "user", "content": prompt}]
-                )
+                response = OpenAI(api_key=settings.openai_api_key).chat.completions.create(
+                    model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}])
                 return response.choices[0].message.content or ""
-            except Exception as e:
-                print(f"[InterestProfiler] OpenAI API call failed: {e}")
+            except Exception as error:
+                print(f"[InterestProfiler] OpenAI call failed: {error}")
+        return ""
 
-        # Fallback dummy profile if no API key is set yet
-        print("[InterestProfiler] No active LLM API key. Returning heuristic profile.")
-        return json.dumps({
-            "core_interests": [
-                "MCP (Model Context Protocol) Daemon Architecture",
-                "PyTorch VRAM Optimization & Windows WDDM Paging",
-                "Qdrant Vector Database & Hybrid Search",
-                "AI Agent Frameworks & Automation",
-                "Jekyll GitHub Pages Personal Site Unification"
-            ],
-            "knowledge_depth": {
-                "MCP": "Expert: Implemented single SSE daemon + stdio proxy with 66% RAM reduction",
-                "PyTorch/VRAM": "Advanced: Deep understanding of WDDM shared GPU memory paging and freeze mitigation",
-                "Qdrant": "Advanced: Multi-model embedding store, batch upserting, Docker deployment"
-            },
-            "avoid_topics": [
-                "Docker basics",
-                "What is MCP",
-                "Intro to Vector DB",
-                "Jekyll hello world"
-            ],
-            "target_domains": [
-                "AI Agent Systems",
-                "Memory & Performance Optimization",
-                "Developer Tooling & Infrastructure"
-            ],
-            "search_keywords": [
-                "MCP server",
-                "Model Context Protocol",
-                "PyTorch memory optimization",
-                "Qdrant hybrid search",
-                "AI agent workflow",
-                "vLLM memory",
-                "fastembed"
-            ]
-        }, ensure_ascii=False)
-
-    def build_profile(self, days: int = 14) -> UserProfile:
-        """Build a comprehensive UserProfile based on recent notes and RAG depth."""
-        daily_notes = self.scanner.get_recent_daily_notes(days=days)
-        active_projects = self.scanner.get_active_projects()
-
-        # Aggregate summary of recent notes
-        recent_summaries = []
-        for note in daily_notes[:5]:
-            snippet = note["content"][:1500]  # First 1500 chars of each note
-            recent_summaries.append(f"### [일기: {note['date']}]\n{snippet}\n")
-
-        for proj in active_projects[:3]:
-            snippet = proj["content"][:1000]
-            recent_summaries.append(f"### [프로젝트: {proj['name']}]\n{snippet}\n")
-
-        notes_context = "\n".join(recent_summaries)
-
-        prompt = f"""
-다음은 사용자의 최근 일기 및 진행 중인 프로젝트 기록이다.
-사용자의 최근 관심사를 분석하고, 사용자가 이미 높은 수준으로 구현하거나 이해하고 있는 지식 깊이를 파악하여
-아래 JSON 형식에 맞추어 출력하라. 마크다운 코드블록(```json ... ```)을 포함해 출력하라.
-
-[최근 기록]
-{notes_context}
-
-[JSON 요구 스키마]
-{{
-  "core_interests": ["최근 집중하는 기술/학습 주제 5~7개"],
-  "knowledge_depth": {{"주제명": "사용자가 이미 달성한 지식/구현 수준 요약"}},
-  "avoid_topics": ["이미 마스터했으므로 추천에서 제외해야 할 기초/입문/상식적 주제들"],
-  "target_domains": ["관심 있는 기술 분야 3~5개"],
-  "search_keywords": ["GitHub Trending, GeekNews, Hacker News 등에서 검색/필터링할 영문/한글 키워드 8~12개"]
-}}
+    def build_profile(self, days: int = 14, *, statements=(), run_logs=()) -> UserProfile:
+        notes = self.scanner.get_recent_daily_notes(days=days)[:5] + self.scanner.get_active_projects()[:3]
+        note_results = [{"path": note["path"], "title": Path(note["path"]).stem,
+                         "retrieval_method": "note_scan"} for note in notes]
+        context = build_user_context(statements=statements, note_results=note_results, run_logs=run_logs)
+        interests, domains, keywords = list(context.interests), [], list(context.interests)
+        if context.note_refs or context.statements:
+            inspectable = "\n".join([*(f"{note.title}\n{note.snippet}" for note in context.note_refs),
+                                      *(item.text for item in context.statements)])
+            prompt = f"""최근 기록에서 명시된 관심 주제만 JSON으로 추출하라.
+노트는 경험이나 전문성의 증거가 아니다. 지식 깊이는 unknown이다.
+관심 주제와 키워드는 원문에 존재하는 문자열만 사용한다.
+{{"core_interests": [], "knowledge_depth": {{"overall": "unknown"}},
+ "avoid_topics": [], "target_domains": [], "search_keywords": []}}
+[출처가 있는 기록]
+{inspectable}
 """
-        raw_output = self._call_llm(prompt)
-        
-        # Parse JSON
-        try:
-            cleaned = raw_output.strip()
-            if "```json" in cleaned:
-                cleaned = cleaned.split("```json")[1].split("```")[0].strip()
-            elif "```" in cleaned:
-                cleaned = cleaned.split("```")[1].split("```")[0].strip()
-            data = json.loads(cleaned)
-            return UserProfile(**data)
-        except Exception as e:
-            print(f"[InterestProfiler] Failed to parse LLM JSON: {e}. Raw: {raw_output[:200]}")
-            # Fallback
-            return UserProfile(
-                core_interests=["MCP Daemon", "Qdrant RAG", "PyTorch VRAM", "AI Agent Tooling"],
-                knowledge_depth={"MCP": "Advanced single SSE daemon implementation"},
-                avoid_topics=["Intro to Docker", "Intro to Python"],
-                target_domains=["AI Engineering", "Performance Optimization"],
-                search_keywords=["mcp", "qdrant", "pytorch vram", "ai agent", "llm tooling"]
-            )
+            try:
+                cleaned = self._call_llm(prompt).strip()
+                if "```" in cleaned:
+                    cleaned = cleaned.split("```")[1].removeprefix("json").strip()
+                suggested = UserProfile(**json.loads(cleaned))
+                grounded = inspectable.casefold()
+                interests = [item for item in suggested.core_interests if item.strip() and item.casefold() in grounded]
+                domains = [item for item in suggested.target_domains if item.strip() and item.casefold() in grounded]
+                keywords = [item for item in suggested.search_keywords if item.strip() and item.casefold() in grounded]
+            except Exception:
+                # Degraded interest extraction still retains actual references.
+                context = context.model_copy(update={"diagnostics": (*context.diagnostics, "profile_extraction_unavailable")})
+        return UserProfile(core_interests=interests,
+            knowledge_depth={item: "unknown" for item in interests} or {"overall": "unknown"},
+            avoid_topics=[], target_domains=domains, search_keywords=keywords, user_context=context)

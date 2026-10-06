@@ -178,11 +178,40 @@ class ResearchBlocked(Contract):
     packet: ResearchPacket | None = None
 
 
+class UserStatement(Contract):
+    text: NonEmpty
+    reference: NonEmpty
+    category: Literal["goal", "constraint", "interest", "experience"]
+    publication_allowed: bool = False
+
+
+class VaultNoteRef(Contract):
+    path: Path
+    sha256: Sha256
+    title: NonEmpty
+    snippet: NonEmpty
+    retrieval_method: Literal["note_scan", "local_search", "rag"]
+
+
 class UserContext(Contract):
     goals: tuple[NonEmpty, ...] = ()
     constraints: tuple[NonEmpty, ...] = ()
     interests: tuple[NonEmpty, ...] = ()
     experience_refs: tuple[SourceRecord, ...] = ()
+    statements: tuple[UserStatement, ...] = ()
+    note_refs: tuple[VaultNoteRef, ...] = ()
+    published_experience: tuple[UserStatement, ...] = ()
+    depth: Literal["unknown", "documented"] = "unknown"
+    diagnostics: tuple[NonEmpty, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_public_experience(self):
+        for statement in self.published_experience:
+            if statement not in self.statements or statement.category != "experience" or not statement.publication_allowed:
+                raise ValueError("published experience requires an attached user statement marked for publication")
+        if self.depth == "documented" and not self.experience_refs and not self.published_experience:
+            raise ValueError("documented depth requires explicit experience evidence")
+        return self
 
     @field_validator("experience_refs")
     @classmethod
@@ -192,6 +221,14 @@ class UserContext(Contract):
         return value
 
 
+class PaperStudy(Contract):
+    dataset: tuple[EvidenceClaim, ...] = ()
+    baseline: tuple[EvidenceClaim, ...] = ()
+    metrics: tuple[EvidenceClaim, ...] = ()
+    ablation: tuple[EvidenceClaim, ...] = ()
+    limitations: tuple[EvidenceClaim, ...] = ()
+
+
 class EditorialBrief(Contract):
     topic_id: NonEmpty
     post_kind: Literal["paper", "tool", "protocol", "design_comparison"]
@@ -199,6 +236,17 @@ class EditorialBrief(Contract):
     comparison: tuple[NonEmpty, ...]
     decision_criteria: tuple[NonEmpty, ...] = Field(min_length=1)
     reversal_conditions: tuple[NonEmpty, ...] = Field(min_length=1)
+    # Defaults keep Unit 1 JSON/constructors readable; build_brief requires these.
+    question: NonEmpty | None = None
+    audience: NonEmpty = "Korean-speaking software practitioners"
+    key_mechanism: NonEmpty | None = None
+    adoption_constraints: tuple[NonEmpty, ...] = ()
+    evidence: tuple[EvidenceClaim, ...] = ()
+    source_authority: tuple[NonEmpty, ...] = ()
+    study: PaperStudy | None = None
+    warnings: tuple[NonEmpty, ...] = ()
+    user_context: UserContext = Field(default_factory=UserContext)
+    policy_version: NonEmpty = "1.0"
 
 
 class DraftStatus(StrEnum):

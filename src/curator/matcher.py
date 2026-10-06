@@ -78,7 +78,10 @@ class TrendMatcher:
         candidates_str = "\n".join(candidates_text)
 
         prompt = f"""
-다음은 사용자의 관심사 및 지식 깊이 프로필이다:
+다음은 사용자의 관심사 프로필이다. 노트와 관심사는 사용 경험의 증거가 아니다.
+knowledge_depth가 unknown이면 구현 경험이나 전문성을 추정하지 마라.
+사용자 공개 경험 기록: {profile.user_context.published_experience}
+명시적으로 첨부된 실행 기록 수: {len(profile.user_context.experience_refs)}
 - 핵심 관심사: {profile.core_interests}
 - 보유 지식 수준: {profile.knowledge_depth}
 - 절대 추천 금지 (기초/입문): {profile.avoid_topics}
@@ -100,7 +103,7 @@ class TrendMatcher:
     "source": "출처",
     "one_line_summary": "핵심 내용 1줄 요약",
     "relevance_reason": "사용자의 최근 관심사와 어떤 점에서 밀접한지, 왜 흥미로울지 설명",
-    "suggested_angle": "블로그 포스트로 작성할 때 잡으면 좋을 유쾌하고 맛깔난 접근 각도"
+    "suggested_angle": "원문으로 검증할 수 있는 한 문장의 질문. 사용해 보았다는 경험을 만들지 마라."
   }}
 ]
 ```
@@ -128,7 +131,7 @@ class TrendMatcher:
                     source=it.source,
                     one_line_summary=it.summary[:100] or it.title,
                     relevance_reason=f"최신 기술 트렌드 ({it.source}) 화제 항목",
-                    suggested_angle="실제 써보고 뜯어보는 실무 개발자 관점의 팩트 폭격 리뷰"
+                    suggested_angle=f"{it.title}의 작동 원리와 대안을 비교하면 어떤 조건에서 채택할 수 있는가?"
                 ))
 
         return curated
@@ -138,7 +141,7 @@ class TrendMatcher:
         """Format curated topics into a friendly, structured Telegram briefing message."""
         lines = [
             "🔥 **[오늘의 기술 트렌드 추천 5선]** 🔥",
-            "동우님의 최근 Obsidian 관심사와 기술 깊이를 바탕으로 엄선한 오늘자 트렌드입니다!\n"
+            "확인된 관심 기록과 수집된 기술 자료를 바탕으로 검토할 주제를 추천합니다.\n"
         ]
         for t in topics:
             lines.append(
