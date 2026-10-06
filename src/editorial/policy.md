@@ -14,8 +14,13 @@ Create a reviewable draft, with headings chosen for the actual source material.
 - Unknown source authority stays unknown. Never describe it as confirmed primary.
 - Reject disputed, hypothetical or unsupported core claims. List missing facts
   in NEEDS_RESEARCH instead of creating article prose or a fallback success.
+- Explicitly undocumented or unreported facts remain missing. Their section
+  labels cannot supply a thesis, alternative, constraint or reversal condition.
 - Quantitative result claims require value, unit, target, baseline and conditions.
   Source-reported figures remain attributed to the author, not our measurements.
+- Every numerical outcome needs source-supported value/unit, target and literal
+  baseline/conditions in the result's own source experiment sections. Split
+  compound results into individually contextualized claims or block research.
 - Paper study fields contain only the reported dataset, baseline, metrics,
   ablation and limitations. Missing fields are explicit. Protocol/tool posts do
   not require an experiment or ablation table.

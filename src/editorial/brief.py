@@ -37,6 +37,93 @@ def _kind(material: str) -> str | None:
     return None
 
 
+def _documents_absence(text: str) -> bool:
+    """Absence of documentation is not the missing mechanism/experiment itself.
+
+    Keep real technical negatives (e.g. writes unavailable, incompatible clients)
+    eligible. These patterns concern absent information, not feature polarity.
+    """
+    return bool(re.search(
+        r"\b(?:not|never)\s+(?:\w+\s+){0,2}(?:documented|reported|specified|provided|described|measured|evaluated|known)\b"
+        r"|\bno\b[^.!?\n]*\b(?:documented|reported|specified|provided|described|measured|evaluated)\b"
+        r"|\b(?:undocumented|unreported|unspecified|unknown|missing)\b"
+        r"|(?:명시|제공|보고|측정|확인)되지 않|(?:자료|정보)가 없|미제공",
+        text, re.IGNORECASE))
+
+
+def _contains_phrase(text: str, phrase: str) -> bool:
+    normalized = " ".join(text.casefold().split())
+    wanted = " ".join(phrase.casefold().split())
+    return bool(re.search(r"(?<!\w)" + re.escape(wanted) + r"(?!\w)", normalized))
+
+
+def _unit(unit: str) -> str:
+    unit = unit.casefold().strip()
+    for aliases, canonical in (
+        (("%", "percent", "percentage"), "%"),
+        (("ms", "millisecond", "milliseconds"), "ms"),
+        (("s", "sec", "second", "seconds"), "s"),
+        (("byte", "bytes"), "bytes"),
+    ):
+        if unit in aliases:
+            return canonical
+    return unit
+
+
+def _metric_reasons(claim, sections, roles):
+    """Match each reported value/unit and literal context in its own source.
+
+    The contract has one MetricContext per claim. Compound numerical results
+    therefore block until split into separate, fully contextualized claims.
+    Literal context matching is conservative; it does not certify study validity.
+    """
+    location = claim.source_refs[0].location
+    context = claim.metric_context
+    if context is None:
+        return [f"missing_metric_context:{location}"]
+    reasons = []
+    number_pattern = r"(?<![\w.])[-+]?\d+(?:\.\d+)?(?![\w.])"
+    quantities = list(re.finditer(
+        r"(?<![\w.])(?P<value>[-+]?\d+(?:\.\d+)?)\s*"
+        r"(?P<unit>%|(?:percent(?:age)?|milliseconds?|ms|seconds?|sec|s|tokens/s|[kmg]i?b|bytes?|x)\b)",
+        claim.text, re.IGNORECASE))
+    values = [*re.findall(number_pattern, claim.text), *(match["value"] for match in quantities)]
+    if not any(float(value) == context.value for value in values):
+        reasons.append(f"metric_context_mismatch:{location}")
+    # Contextual sample sizes/worker counts are not extra outcome values. Other
+    # numerical outcomes still need an independently bound MetricContext.
+    residual = claim.text
+    for phrase in (context.baseline, context.conditions):
+        residual = re.sub(re.escape(phrase), "", residual, flags=re.IGNORECASE)
+    if len(quantities) > 1 or len(re.findall(number_pattern, residual)) > 1:
+        reasons.append(f"uncovered_numeric_results:{location}")
+    reported = [match for match in quantities if float(match["value"]) == context.value]
+    if not reported:
+        reasons.append(f"missing_reported_metric_unit:{location}")
+    elif not any(_unit(match["unit"]) == _unit(context.unit) for match in reported):
+        reasons.append(f"metric_unit_mismatch:{location}")
+    referenced = [sections[(ref.url, ref.location)] for ref in claim.source_refs
+                  if (ref.url, ref.location) in sections and roles.get(ref.url) != "secondary"]
+    if not any(_contains_phrase(section.title + "\n" + section.text, context.target)
+               and not _documents_absence(section.text) for section in referenced):
+        reasons.append(f"unsupported_metric_target:{location}")
+    urls = {ref.url for ref in claim.source_refs if roles.get(ref.url) != "secondary"}
+    context_sections = {
+        "baseline": r"\b(?:baseline|alternatives?|compare|compared|comparison|against|versus)\b|기준선|비교|대안",
+        "conditions": r"\b(?:conditions?|experimental setup|settings|environment|workloads?|hardware|workers?|batch)\b|실험 조건|환경|부하",
+    }
+    for field, cues in context_sections.items():
+        # Use the result's snapshots only: an unrelated paper or secondary
+        # discussion cannot supply this experiment's baseline/workload.
+        supported = any(_contains_phrase(section.text, getattr(context, field))
+                        and not _documents_absence(section.text)
+                        and re.search(cues, section.title + "\n" + section.text, re.IGNORECASE)
+                        for (url, _), section in sections.items() if url in urls)
+        if not supported:
+            reasons.append(f"unsupported_metric_{field}:{location}")
+    return reasons
+
+
 def build_brief(packet: ResearchPacket, user_context: UserContext) -> EditorialBrief | ResearchBlocked:
     """Choose an attributed thesis from literal, located source claims.
 
@@ -95,19 +182,16 @@ def build_brief(packet: ResearchPacket, user_context: UserContext) -> EditorialB
             # Numbers in result prose cannot bypass the stronger measurement
             # contract by arriving as an unverified source_claim from Unit 2.
             numeric_result = re.search(r"\d(?:[\d.,]*\s*)(?:%|percent\b|ms\b|seconds\b|tokens/s\b|x\b)|\b(?:faster|slower|throughput|latency|accuracy)\b[^\n]*\d", claim.text, re.IGNORECASE)
-            if numeric_result and claim.metric_context is None:
-                reasons.append(f"missing_metric_context:{claim.source_refs[0].location}")
-            elif numeric_result:
-                value = re.escape(format(claim.metric_context.value, "g"))
-                if not re.search(rf"(?<![\d.]){value}(?:\.0+)?(?![\d.])", claim.text):
-                    reasons.append(f"metric_context_mismatch:{claim.source_refs[0].location}")
+            if numeric_result or claim.metric_context is not None:
+                reasons.extend(_metric_reasons(claim, sections, roles))
             eligible.append((claim, " ".join(matched)))
     if reasons:
         return blocked(reasons)
 
     def select(pattern):
         return tuple(claim for claim, heading in eligible
-                     if re.search(pattern, heading + "\n" + claim.text, re.IGNORECASE))
+                     if not _documents_absence(claim.text)
+                     and re.search(pattern, heading + "\n" + claim.text, re.IGNORECASE))
 
     mechanism = select(r"\b(?:mechanism|method|api|message flow|wire format)\b|작동 원리|방법|메시지 흐름")
     comparison = select(r"\b(?:baseline|alternative|compare|comparison)\b|대안|비교")

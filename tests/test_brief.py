@@ -1,6 +1,7 @@
 """Editorial decisions must resolve to source prose, not invented experiments."""
 import hashlib
 import importlib
+from pathlib import Path
 
 import pytest
 
@@ -133,7 +134,7 @@ def test_complete_reported_metric_context_is_preserved():
     from src.editorial.models import MetricContext
     research = packet("paper", metric=True)
     claim = research.claims[-1].model_copy(update={"metric_context": MetricContext(value=25, unit="%", target="throughput",
-        baseline="in-memory queue", conditions="one worker with the same QueueBench workload")})
+        baseline="in-memory queue", conditions="one worker with the same workload")})
     research = research.model_copy(update={"claims": (*research.claims[:-1], claim)})
     result = builder()(research, UserContext())
     assert isinstance(result, EditorialBrief)
@@ -158,3 +159,83 @@ def test_policy_missing_blocks_before_editorial_result(tmp_path, monkeypatch):
     result = builder()(packet(), UserContext())
     assert isinstance(result, ResearchBlocked)
     assert result.reasons == ("editorial_policy_unavailable",)
+
+
+def test_explicit_missing_facts_cannot_supply_complete_brief():
+    from src.research.extract import markdown_sections, snapshot_text
+    raw = (Path(__file__).parent / "fixtures" / "brief-missing-facts.md").read_bytes()
+    title, sections = markdown_sections(raw.decode("utf-8"))
+    source = SourceRecord(url="https://example.invalid/absent", title=title, kind="markdown",
+        sha256=hashlib.sha256(raw).hexdigest(), text=snapshot_text(sections, "markdown"),
+        locations=tuple(section.location for section in sections), fetched_at="2026-10-07T00:00:00Z", role="primary")
+    claims = tuple(EvidenceClaim(text=section.text, kind="source_claim", source_refs=(SourceRef(
+        url=source.url, sha256=source.sha256, location=section.location),)) for section in sections if section.text)
+    research = ResearchPacket(topic_id="absent-facts", question="When should Queue be adopted?", sources=(source,), claims=claims)
+    result = builder()(research, UserContext())
+    assert isinstance(result, ResearchBlocked)
+    assert set(result.reasons) == {"missing_key_mechanism", "missing_comparison_alternative",
+                                   "missing_adoption_constraints", "missing_reversal_condition"}
+    assert result.packet == research
+
+
+@pytest.mark.parametrize("field, invented, reason", [
+    ("unit", "milliseconds", "metric_unit_mismatch:section:5"),
+    ("target", "memory use", "unsupported_metric_target:section:5"),
+    ("baseline", "the production deployment", "unsupported_metric_baseline:section:5"),
+    ("baseline", "durable storage", "unsupported_metric_baseline:section:5"),
+    ("conditions", "sixteen workers on a GPU", "unsupported_metric_conditions:section:5"),
+    ("conditions", "Persist the request before acknowledgement", "unsupported_metric_conditions:section:5"),
+    ("conditions", "one worker with the same QueueBench workload", "unsupported_metric_conditions:section:5"),
+])
+def test_every_metric_context_field_needs_source_support(field, invented, reason):
+    from src.editorial.models import MetricContext
+    research = packet("paper", metric=True)
+    metadata = dict(value=25, unit="%", target="throughput", baseline="in-memory queue",
+                    conditions="one worker with the same workload")
+    metadata[field] = invented
+    claim = research.claims[-1].model_copy(update={"metric_context": MetricContext(**metadata)})
+    research = research.model_copy(update={"claims": (*research.claims[:-1], claim)})
+    result = builder()(research, UserContext())
+    assert isinstance(result, ResearchBlocked)
+    assert reason in result.reasons
+
+
+def test_same_value_cannot_hide_wrong_unit_target_baseline_and_conditions():
+    from src.editorial.models import MetricContext
+    research = packet("paper", metric=True)
+    claim = research.claims[-1].model_copy(update={"metric_context": MetricContext(value=25,
+        unit="milliseconds", target="memory use", baseline="invented deployment", conditions="sixteen GPU workers")})
+    research = research.model_copy(update={"claims": (*research.claims[:-1], claim)})
+    result = builder()(research, UserContext())
+    assert isinstance(result, ResearchBlocked)
+    assert set(result.reasons) >= {"metric_unit_mismatch:section:5", "unsupported_metric_target:section:5",
+                                  "unsupported_metric_baseline:section:5", "unsupported_metric_conditions:section:5"}
+
+
+@pytest.mark.parametrize("claimed_conditions", ["one worker with the same workload", "Throughput improves by 25% and latency improves by 90%."])
+def test_compound_results_block_until_each_has_its_own_context(claimed_conditions):
+    from src.editorial.models import MetricContext
+    research = packet("paper", metric=True)
+    compound = "Throughput improves by 25% and latency improves by 90%."
+    source = research.sources[0].model_copy(update={"text": research.sources[0].text.replace("Throughput improves by 25%.", compound)})
+    claim = research.claims[-1].model_copy(update={"text": compound, "metric_context": MetricContext(value=25,
+        unit="%", target="throughput", baseline="in-memory queue", conditions=claimed_conditions)})
+    research = research.model_copy(update={"sources": (source,), "claims": (*research.claims[:-1], claim)})
+    result = builder()(research, UserContext())
+    assert isinstance(result, ResearchBlocked)
+    assert "uncovered_numeric_results:section:5" in result.reasons
+
+
+def test_reported_unit_without_space_keeps_its_correct_context():
+    from src.editorial.models import MetricContext
+    research = packet("paper", metric=True)
+    source = research.sources[0].model_copy(update={"text": research.sources[0].text
+        .replace("Throughput improves by 25%.", "Latency is 25ms.")
+        .replace("Throughput measured on one worker", "Latency measured on one worker")})
+    metrics = research.claims[-2].model_copy(update={"text": "Latency measured on one worker with the same workload."})
+    result_claim = research.claims[-1].model_copy(update={"text": "Latency is 25ms.", "metric_context": MetricContext(value=25,
+        unit="milliseconds", target="latency", baseline="in-memory queue", conditions="one worker with the same workload")})
+    research = research.model_copy(update={"sources": (source,), "claims": (*research.claims[:-2], metrics, result_claim)})
+    result = builder()(research, UserContext())
+    assert isinstance(result, EditorialBrief)
+    assert result.evidence[-1].metric_context.unit == "milliseconds"
