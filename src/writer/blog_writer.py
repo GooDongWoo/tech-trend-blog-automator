@@ -76,6 +76,8 @@ class BlogWriter:
         """Deep research topic and generate a Jekyll blog post draft."""
         # 1. Deep research
         research_data = await self.researcher.research(topic)
+        if research_data.get("status") == "NEEDS_RESEARCH":
+            return research_data
 
         # 2. Pick memes
         meme1 = self.meme_mgr.get_random_meme()
@@ -119,7 +121,7 @@ tags: [트렌드, 개발, 오픈소스]
 - 출처: {topic.source} ({topic.url})
 - 추천 각도: {topic.suggested_angle}
 - 수집된 원문 데이터:
-{research_data['raw_content'][:3000]}
+{research_data.get('context', research_data['raw_content'])}
 """
 
         generated_raw = self._call_llm(prompt)

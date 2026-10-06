@@ -59,6 +59,7 @@ class Contract(BaseModel):
 
 class SourceRecord(Contract):
     url: NonEmpty
+    final_url: NonEmpty | None = None
     fetched_at: datetime
     title: NonEmpty
     kind: Literal["html", "pdf", "markdown", "text", "run_log"]
@@ -66,6 +67,9 @@ class SourceRecord(Contract):
     text: str = ""
     locations: tuple[NonEmpty, ...] = ()
     error: NonEmpty | None = None
+    diagnostics: tuple[NonEmpty, ...] = ()
+    snapshot_path: Path | None = None
+    role: Literal["primary", "secondary", "unknown"] = "unknown"
 
     @field_validator("fetched_at")
     @classmethod
@@ -81,6 +85,8 @@ class SourceRecord(Contract):
                 raise ValueError("run_log requires an inspectable path")
         else:
             canonical_topic_url(self.url)
+        if self.final_url is not None:
+            canonical_topic_url(self.final_url)
         if self.error is None and (self.sha256 is None or not self.text.strip() or not self.locations):
             raise ValueError("successful source requires an inspectable snapshot, hash and locations")
         return self
@@ -162,6 +168,14 @@ class ResearchPacket(Contract):
                 if source is None or source.error is not None or ref.sha256 != source.sha256 or ref.location not in source.locations:
                     raise ValueError("reference does not match an inspectable source snapshot/location")
         return self
+
+
+class ResearchBlocked(Contract):
+    """Visible research failure, retaining snapshots and any disputed packet."""
+    status: Literal["NEEDS_RESEARCH"] = "NEEDS_RESEARCH"
+    reasons: tuple[NonEmpty, ...] = Field(min_length=1)
+    sources: tuple[SourceRecord, ...] = ()
+    packet: ResearchPacket | None = None
 
 
 class UserContext(Contract):
