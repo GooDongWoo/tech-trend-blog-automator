@@ -64,7 +64,7 @@ class SourceRecord(Contract):
     kind: Literal["html", "pdf", "markdown", "text", "run_log"]
     sha256: Sha256 | None = None
     text: str = ""
-    locations: list[NonEmpty] = Field(default_factory=list)
+    locations: tuple[NonEmpty, ...] = ()
     error: NonEmpty | None = None
 
     @field_validator("fetched_at")
@@ -123,7 +123,7 @@ class ClaimKind(StrEnum):
 class EvidenceClaim(Contract):
     text: NonEmpty
     kind: ClaimKind
-    source_refs: list[SourceRef] = Field(default_factory=list)
+    source_refs: tuple[SourceRef, ...] = ()
     metric_context: MetricContext | None = None
     status: Literal["unverified", "verified", "disputed"] = "unverified"
 
@@ -142,9 +142,9 @@ class EvidenceClaim(Contract):
 class ResearchPacket(Contract):
     topic_id: NonEmpty
     question: NonEmpty
-    sources: list[SourceRecord]
-    claims: list[EvidenceClaim] = Field(default_factory=list)
-    gaps: list[NonEmpty] = Field(default_factory=list)
+    sources: tuple[SourceRecord, ...]
+    claims: tuple[EvidenceClaim, ...] = ()
+    gaps: tuple[NonEmpty, ...] = ()
 
     @model_validator(mode="after")
     def validate_references(self):
@@ -165,14 +165,14 @@ class ResearchPacket(Contract):
 
 
 class UserContext(Contract):
-    goals: list[NonEmpty] = Field(default_factory=list)
-    constraints: list[NonEmpty] = Field(default_factory=list)
-    interests: list[NonEmpty] = Field(default_factory=list)
-    experience_refs: list[SourceRecord] = Field(default_factory=list)
+    goals: tuple[NonEmpty, ...] = ()
+    constraints: tuple[NonEmpty, ...] = ()
+    interests: tuple[NonEmpty, ...] = ()
+    experience_refs: tuple[SourceRecord, ...] = ()
 
     @field_validator("experience_refs")
     @classmethod
-    def require_run_logs(cls, value: list[SourceRecord]) -> list[SourceRecord]:
+    def require_run_logs(cls, value: tuple[SourceRecord, ...]) -> tuple[SourceRecord, ...]:
         for record in value:
             MetricContext.inspectable_run(record)
         return value
@@ -182,9 +182,9 @@ class EditorialBrief(Contract):
     topic_id: NonEmpty
     post_kind: Literal["paper", "tool", "protocol", "design_comparison"]
     thesis: NonEmpty
-    comparison: list[NonEmpty]
-    decision_criteria: list[NonEmpty] = Field(min_length=1)
-    reversal_conditions: list[NonEmpty] = Field(min_length=1)
+    comparison: tuple[NonEmpty, ...]
+    decision_criteria: tuple[NonEmpty, ...] = Field(min_length=1)
+    reversal_conditions: tuple[NonEmpty, ...] = Field(min_length=1)
 
 
 class DraftStatus(StrEnum):
@@ -203,13 +203,15 @@ class DraftArtifact(Contract):
     evidence_path: Path
     report_path: Path
     status: DraftStatus = DraftStatus.NEEDS_RESEARCH
-    media_paths: list[Path] = Field(default_factory=list)
+    media_paths: tuple[Path, ...] = ()
     approved_sha256: Sha256 | None = None
 
     def model_copy(self, *, update=None, deep=False):
         copied = super().model_copy(update=update, deep=deep)
         if copied.status != self.status:
             raise ValueError("state changes require transition() and its hash check")
+        if self.status in {DraftStatus.APPROVED, DraftStatus.PUBLISHED} and copied != self:
+            raise ValueError("approval-bound draft edits require revision and renewed approval")
         return copied
 
     @model_validator(mode="after")

@@ -1,6 +1,7 @@
 """Evidence contracts reject unsupported claims and approval shortcuts offline."""
 import hashlib
 import importlib
+import json
 
 import pytest
 from pydantic import ValidationError
@@ -224,3 +225,55 @@ def test_missing_draft_file_blocks_approval(tmp_path):
     artifact.content_path.unlink()
     with pytest.raises(FileNotFoundError):
         artifact.transition("APPROVED", content_sha256=artifact.content_sha256)
+
+
+def test_same_status_copy_cannot_replace_approved_content(tmp_path):
+    artifact = draft(tmp_path)
+    approved = artifact.transition("APPROVED", content_sha256=artifact.content_sha256)
+    unreviewed = tmp_path / "unreviewed.md"
+    unreviewed.write_text("Unreviewed article", encoding="utf-8")
+    new_hash = hashlib.sha256(unreviewed.read_bytes()).hexdigest()
+    with pytest.raises(ValueError, match="approval-bound"):
+        approved.model_copy(update={"content_path": unreviewed,
+                                   "content_sha256": new_hash,
+                                   "approved_sha256": new_hash})
+
+
+@pytest.mark.parametrize("field,value", [
+    ("id", "different-draft"), ("topic_id", "different-topic"),
+    ("evidence_path", "different-evidence.json"),
+    ("report_path", "different-review.md"), ("media_paths", ["unreviewed.gif"]),
+])
+def test_approved_copy_cannot_change_review_identity(tmp_path, field, value):
+    artifact = draft(tmp_path)
+    approved = artifact.transition("APPROVED", content_sha256=artifact.content_sha256)
+    with pytest.raises(ValueError, match="approval-bound"):
+        approved.model_copy(update={field: value})
+
+
+def test_content_edit_requires_revision_and_new_approval(tmp_path):
+    artifact = draft(tmp_path)
+    approved = artifact.transition("APPROVED", content_sha256=artifact.content_sha256)
+    unreviewed = tmp_path / "revised.md"
+    unreviewed.write_text("Reviewed revision", encoding="utf-8")
+    new_hash = hashlib.sha256(unreviewed.read_bytes()).hexdigest()
+    revised = approved.transition("NEEDS_REVISION").model_copy(
+        update={"content_path": unreviewed, "content_sha256": new_hash})
+    ready = revised.transition("REVIEW_READY")
+    renewed = ready.transition("APPROVED", content_sha256=new_hash)
+    assert renewed.transition("PUBLISHED", content_sha256=new_hash).content_sha256 == new_hash
+
+
+@pytest.mark.parametrize("collection", ["sources", "claims", "gaps", "source_refs", "locations"])
+def test_validated_packet_collections_cannot_be_cleared(collection):
+    claim = models().EvidenceClaim(text="Queue result", kind="source_claim", source_refs=[ref()])
+    packet = models().ResearchPacket(topic_id="topic-1", question="How?",
+        sources=[source()], claims=[claim], gaps=["No ablation"])
+    collections = dict(sources=packet.sources, claims=packet.claims, gaps=packet.gaps,
+                       source_refs=packet.claims[0].source_refs,
+                       locations=packet.sources[0].locations)
+    with pytest.raises(AttributeError):
+        collections[collection].clear()
+    serialized = packet.model_dump_json()
+    assert json.loads(serialized)["claims"][0]["source_refs"] == [ref()]
+    assert type(packet).model_validate_json(serialized) == packet
