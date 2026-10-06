@@ -1,0 +1,6 @@
+{
+  "empty": "",
+  "unsupported_quantitative": "---\nlayout: post\ntitle: \"Fixture queue review\"\n---\n\nThe queue persists pending jobs before acknowledging them.\n\n[MEME_1]\n\nThe queue is 73% faster than every alternative.\n\n[MEME_2]\n",
+  "unsupported_claim": "The queue is 73% faster than every alternative.",
+  "unsupported_claim_location": "unsupported_quantitative, body paragraph 2"
+}

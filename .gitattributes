@@ -1,0 +1,2 @@
+# PDF xref offsets depend on byte positions, even for an all-ASCII fixture.
+tests/fixtures/*.pdf binary

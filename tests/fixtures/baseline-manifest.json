@@ -1,0 +1,109 @@
+{
+  "evaluation_method": "Single editorial reviewer inspecting local Markdown only; no external truth validation or live API calls.",
+  "posts": [
+    {
+      "path": "C:\\Users\\dongwoo\\vs_proj\\GooDongWoo.github.io\\_posts\\2026-09-20-stagehand-v4-playwright-대비-2배-빠른-속도와-80-토큰-절감을-달성한.md",
+      "repository_relative_path": "_posts/2026-09-20-stagehand-v4-playwright-대비-2배-빠른-속도와-80-토큰-절감을-달성한.md",
+      "topic_type": "library/tool",
+      "evaluation_date": "2026-10-07",
+      "sha256": "e9712e94aa7cca76c19354000f65a5a54c3a541513e98bc64d8ba0a1ca9e51d4",
+      "observed": {
+        "characters": 4775,
+        "markdown_images": 2,
+        "external_markdown_links": 0,
+        "scene_explanation_markers": 0
+      }
+    },
+    {
+      "path": "C:\\Users\\dongwoo\\vs_proj\\GooDongWoo.github.io\\_posts\\2026-09-22-akitaonrailsai-memory-에이전트-코딩-cli를-위한-장기-기억-및-벤더-간.md",
+      "repository_relative_path": "_posts/2026-09-22-akitaonrailsai-memory-에이전트-코딩-cli를-위한-장기-기억-및-벤더-간.md",
+      "topic_type": "library/tool",
+      "evaluation_date": "2026-10-07",
+      "sha256": "df7a1480f7964d8ce2778e3cd13737fb0cb0639da9fb76348cbee8dd8e1c80dc",
+      "observed": {
+        "characters": 3254,
+        "markdown_images": 2,
+        "external_markdown_links": 0,
+        "scene_explanation_markers": 2
+      }
+    },
+    {
+      "path": "C:\\Users\\dongwoo\\vs_proj\\GooDongWoo.github.io\\_posts\\2026-09-22-gavel-검증되고-효율적인-장기-llm-태스크-계획을-위한-그래프-세계-모델.md",
+      "repository_relative_path": "_posts/2026-09-22-gavel-검증되고-효율적인-장기-llm-태스크-계획을-위한-그래프-세계-모델.md",
+      "topic_type": "paper/benchmark",
+      "evaluation_date": "2026-10-07",
+      "sha256": "866d3983953709e770eaff13b45ea74324ccc78ac33c5bfd54c650c1adf4466a",
+      "observed": {
+        "characters": 2985,
+        "markdown_images": 2,
+        "external_markdown_links": 0,
+        "scene_explanation_markers": 2
+      }
+    },
+    {
+      "path": "C:\\Users\\dongwoo\\vs_proj\\GooDongWoo.github.io\\_posts\\2026-09-22-trycuacua-오픈소스-드라이버와-크로스-os-플릿을-활용한-computer-use-2.md",
+      "repository_relative_path": "_posts/2026-09-22-trycuacua-오픈소스-드라이버와-크로스-os-플릿을-활용한-computer-use-2.md",
+      "topic_type": "library/tool",
+      "evaluation_date": "2026-10-07",
+      "sha256": "60f61236c2abdd694d22bae731741f127ebb9fc8d94449b95248c051769fe85e",
+      "observed": {
+        "characters": 3399,
+        "markdown_images": 2,
+        "external_markdown_links": 0,
+        "scene_explanation_markers": 2
+      }
+    },
+    {
+      "path": "C:\\Users\\dongwoo\\vs_proj\\GooDongWoo.github.io\\_posts\\2026-10-02-dietrichgebertponytail-게으른-시니어-개발자처럼-생각하는-ai-에이전트.md",
+      "repository_relative_path": "_posts/2026-10-02-dietrichgebertponytail-게으른-시니어-개발자처럼-생각하는-ai-에이전트.md",
+      "topic_type": "library/tool",
+      "evaluation_date": "2026-10-07",
+      "sha256": "22a3da80507e940cb3a85e7f23497bb7f0c7e52853b9ddf3c5c04161f63e0a95",
+      "observed": {
+        "characters": 2990,
+        "markdown_images": 2,
+        "external_markdown_links": 0,
+        "scene_explanation_markers": 0
+      }
+    },
+    {
+      "path": "C:\\Users\\dongwoo\\vs_proj\\GooDongWoo.github.io\\_posts\\2026-10-02-openid-foundation-에이전트-ai를-위한-신원-관리-identity-manag.md",
+      "repository_relative_path": "_posts/2026-10-02-openid-foundation-에이전트-ai를-위한-신원-관리-identity-manag.md",
+      "topic_type": "protocol/standard",
+      "evaluation_date": "2026-10-07",
+      "sha256": "3b2a19ef6915c53e95085b57ced6e6e5a6545b40a66bd2b1f0b43fd3189820c4",
+      "observed": {
+        "characters": 3352,
+        "markdown_images": 2,
+        "external_markdown_links": 1,
+        "scene_explanation_markers": 2
+      }
+    },
+    {
+      "path": "C:\\Users\\dongwoo\\vs_proj\\GooDongWoo.github.io\\_posts\\2026-10-02-pageindex-vectorless-reasoning-based-rag-문서-인덱스.md",
+      "repository_relative_path": "_posts/2026-10-02-pageindex-vectorless-reasoning-based-rag-문서-인덱스.md",
+      "topic_type": "library/tool",
+      "evaluation_date": "2026-10-07",
+      "sha256": "47ae2d6e91f220122bf27459d53e10bf8a8026e207c9cf909b579e54bdfabf0d",
+      "observed": {
+        "characters": 3220,
+        "markdown_images": 2,
+        "external_markdown_links": 0,
+        "scene_explanation_markers": 2
+      }
+    },
+    {
+      "path": "C:\\Users\\dongwoo\\vs_proj\\GooDongWoo.github.io\\_posts\\2026-10-02-브라우저-실시간-통신-설계-폴링ssewebsocket과-상태-복구.md",
+      "repository_relative_path": "_posts/2026-10-02-브라우저-실시간-통신-설계-폴링ssewebsocket과-상태-복구.md",
+      "topic_type": "design comparison",
+      "evaluation_date": "2026-10-07",
+      "sha256": "6c2940fd338b0ad4f0968add5a18bda7d83680de6a24bb831cf11a587fa11084",
+      "observed": {
+        "characters": 3075,
+        "markdown_images": 2,
+        "external_markdown_links": 0,
+        "scene_explanation_markers": 2
+      }
+    }
+  ]
+}

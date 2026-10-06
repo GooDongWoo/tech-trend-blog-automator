@@ -1,0 +1,8 @@
+{
+  "supported": [
+    {"claim": "The queue persists pending jobs before acknowledging them.", "locations": ["source.html#mechanism", "README.md:4", "source.pdf:page 1"]},
+    {"claim": "A failed worker leaves the job pending for retry.", "locations": ["source.html#limits", "README.md:10"]}
+  ],
+  "unsupported": [{"claim": "The queue is 73% faster than every alternative.", "location": "llm-responses.json:unsupported_quantitative", "reason": "No fixture source supplies a throughput benchmark, baseline, or measurement conditions."}],
+  "media": {"file": "local.gif", "visible_content": "One white pixel; no characters, words, or actions.", "topic_fit": "none", "origin": "synthetic local fixture", "usage": "test only"}
+}
