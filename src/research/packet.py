@@ -113,7 +113,7 @@ def select_context(packet: ResearchPacket, *, max_chars: int = 12000) -> str:
                 words = set(re.findall(r"\w{3,}", f"{section.title} {paragraph}".casefold()))
                 relevance = len(terms & words)
                 role_order = {"primary": 0, "unknown": 1, "secondary": 2}[source.role]
-                chunk = f"[{source.role}] {source.url} [{section.location}]\n{paragraph}"
+                chunk = f"[{source.role}] {source.url} [{section.location}]\n{section.title}\n{paragraph}"
                 candidates.append(((role_order, -relevance, source_index, section_index, paragraph_index), chunk))
     selected, used, seen = [], 0, set()
     for _, chunk in sorted(candidates):

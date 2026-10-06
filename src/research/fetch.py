@@ -51,6 +51,7 @@ def fetch_source(url: str, *, snapshot_dir: Path | str = Path("temp/research/sou
                 title, extracted = html_sections(response.text)
             else:
                 title, extracted = markdown_sections(response.text)
+            title = title.strip() or original_url
             data.update(title=title, text=snapshot_text(extracted, data["kind"]),
                         locations=tuple(item.location for item in extracted))
             blocked_title = re.search(r"^(access denied|just a moment|attention required|robot check)", title, re.I)

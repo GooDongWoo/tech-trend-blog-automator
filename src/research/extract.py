@@ -41,24 +41,33 @@ def _location(index: int, title: str, anchor: str | None = None) -> str:
     return f"section:{index}:{slug}"
 
 
+def _heading_context(headings: list[tuple[int, str]], level: int, title: str) -> str:
+    """Retain ancestry while replacing equal/deeper headings at a sibling."""
+    while headings and headings[-1][0] >= level:
+        headings.pop()
+    headings.append((level, title))
+    return " > ".join(text for _, text in headings)
+
+
 def html_sections(content: str) -> tuple[str, list[Section]]:
     soup = BeautifulSoup(content, "html.parser")
-    title = soup.title.get_text(" ", strip=True) if soup.title else "Document"
+    title = (soup.title.get_text(" ", strip=True) if soup.title else "") or "Document"
     for tag in soup(["script", "style", "nav", "footer", "header", "noscript", "head", "title"]):
         tag.decompose()
     root = soup.body or soup
     sections = []
     heading, anchor, fragments = "Document", None, []
+    headings, heading_seen = [], False
 
     def flush():
         nonlocal fragments
         text = "\n\n".join(part for part in fragments if part.strip()).strip()
-        if text:
+        if text or heading_seen:
             sections.append(Section(_location(len(sections) + 1, heading, anchor), heading, text))
         fragments = []
 
     def visit(node):
-        nonlocal heading, anchor
+        nonlocal heading, anchor, heading_seen
         if isinstance(node, Comment):
             return
         if isinstance(node, NavigableString):
@@ -67,7 +76,8 @@ def html_sections(content: str) -> tuple[str, list[Section]]:
         elif isinstance(node, Tag):
             if re.fullmatch(r"h[1-6]", node.name):
                 flush()
-                heading, anchor = node.get_text(" ", strip=True), node.get("id")
+                heading = _heading_context(headings, int(node.name[1]), node.get_text(" ", strip=True) or "Untitled section")
+                anchor, heading_seen = node.get("id"), True
             elif node.name in {"p", "pre", "li", "table", "blockquote"}:
                 fragments.append(node.get_text(" " if node.name != "pre" else "", strip=True))
             else:
@@ -82,23 +92,25 @@ def html_sections(content: str) -> tuple[str, list[Section]]:
 def markdown_sections(content: str) -> tuple[str, list[Section]]:
     sections, fragments = [], []
     heading, title, in_code = "Document", "README", False
+    headings, heading_seen = [], False
 
     def flush():
         nonlocal fragments
         text = "\n".join(fragments).strip()
-        if text:
+        if text or heading_seen:
             sections.append(Section(_location(len(sections) + 1, heading), heading, text))
         fragments = []
 
     for line in content.splitlines():
         if re.match(r"^\s*(```|~~~)", line):
             in_code = not in_code
-        match = None if in_code else re.match(r"^#{1,6}\s+(.+?)\s*#*\s*$", line)
+        match = None if in_code else re.match(r"^(#{1,6})\s+(.+?)\s*#*\s*$", line)
         if match:
             flush()
-            heading = match.group(1)
+            heading = _heading_context(headings, len(match.group(1)), match.group(2))
+            heading_seen = True
             if title == "README":
-                title = heading
+                title = match.group(2)
         else:
             fragments.append(line)
     flush()

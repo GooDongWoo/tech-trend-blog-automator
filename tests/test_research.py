@@ -98,7 +98,7 @@ def test_repository_readme_uses_default_branch_endpoint(http_fixture):
     assert source.kind == "markdown" and source.role == "primary"
     assert source.url == url and source.final_url == endpoint
     assert "enqueue(job)" in source.text
-    assert any(item.title == "API" and "ack(job_id)" in item.text for item in sections(source))
+    assert any(item.title == "Fixture queue > API" and "ack(job_id)" in item.text for item in sections(source))
 
 
 def test_pdf_packet_binds_actual_page_text(topic, http_fixture):
@@ -288,3 +288,41 @@ def test_pdf_content_that_looks_like_markdown_keeps_page_text():
                           title="paper", kind="pdf", sha256="a" * 64,
                           text="# Original PDF heading\nMeasured body text.", locations=("page:1",))
     assert sections(source)[0].text == source.text
+
+
+@pytest.mark.parametrize("has_body", [True, False])
+def test_blank_html_title_retains_snapshot_and_visible_result(topic, http_fixture, has_body):
+    body = (FIXTURES / "blank-title.html").read_bytes() if has_body else b"<html><head><title></title></head><body></body></html>"
+    http_fixture[topic.url] = (200, body, "text/html", None)
+    source = fetch(topic.url)
+    assert source.title.strip()
+    assert source.snapshot_path.is_file()
+    result = packet(topic, [source])
+    if has_body:
+        assert source.error is None
+        assert any("persists pending jobs" in claim.text for claim in result.claims)
+    else:
+        assert source.error == "empty_extraction"
+        assert result.status == "NEEDS_RESEARCH"
+        assert "empty_extraction" in result.reasons
+
+
+@pytest.mark.parametrize("fixture,content_type", [("scoped-headings.md", "text/markdown"),
+                                                 ("scoped-headings.html", "text/html")])
+def test_parent_headings_scope_snapshot_claims_and_prompt(topic, http_fixture, fixture, content_type):
+    serve(http_fixture, topic.url, fixture, content_type)
+    source = fetch(topic.url)
+    result = packet(topic, [source])
+    assert all(heading in source.text for heading in ("Stable API", "Experimental API", "Appendix"))
+    mapped = {section.location: section for section in sections(source)}
+    for statement, parent in [("Retries are safe.", "Stable API"),
+                              ("Retries are unsafe.", "Experimental API")]:
+        claim = next(claim for claim in result.claims if claim.text == statement)
+        section = mapped[claim.source_refs[0].location]
+        assert parent in section.title and "Behavior" in section.title
+    context = api("src.research.packet", "select_context")(result)
+    assert "Stable API > Behavior" in context and "Retries are safe." in context
+    assert "Experimental API > Behavior" in context and "Retries are unsafe." in context
+    assert "Stable API" in source.snapshot_path.with_suffix(".md").read_text(encoding="utf-8")
+    saved = json.loads(next(Path("temp/research/packets").glob("*.json")).read_text(encoding="utf-8"))
+    assert "Experimental API" in saved["sources"][0]["text"]
