@@ -133,6 +133,8 @@ class TrendBotApp:
         directory = artifact.content_path.parent
         # Full files are delivered before any approval button is offered.
         for path in (artifact.content_path, directory / "review.md", *artifact.media_paths):
+            if path == artifact.content_path and path.stat().st_size == 0:
+                continue  # Blocked generation can legitimately have no article body.
             with path.open("rb") as document:
                 await bot.send_document(chat_id=chat_id, document=document, filename=path.name)
         self.pipeline.bind_reviewer(artifact.id, chat, user)
@@ -157,11 +159,15 @@ class TrendBotApp:
 
     async def handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
-        await query.answer()
         try:
             chat, user = self.reviewer_identity()
             if str(query.message.chat_id) != chat or str(getattr(query.from_user, "id", "")) != user:
                 raise ValueError("unauthorized reviewer")
+        except (ValueError, AttributeError) as error:
+            await query.answer(f"처리 차단: {error}", show_alert=True)
+            return
+        await query.answer()
+        try:
             data = query.data or ""
             if data == "refresh_topics":
                 await self.trigger_briefing(chat_id=chat, context=context)

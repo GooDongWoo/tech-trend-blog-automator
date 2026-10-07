@@ -235,6 +235,33 @@ def test_selection_and_blocked_review_never_offer_approval(tmp_path, drafting_in
     assert not settings.blog_repo_path.exists() and not settings.obsidian_vault_path.exists()
 
 
+@pytest.mark.parametrize("research_blocked", [False, True])
+def test_empty_blocked_draft_still_delivers_report_and_retry(tmp_path, drafting_input, monkeypatch, research_blocked):
+    from telegram.error import BadRequest
+    from src.bot.telegram_bot import TrendBotApp
+    monkeypatch.setattr(settings, "telegram_chat_id", "7")
+    packet, _ = drafting_input
+    research = {"packet": packet, "status": "NEEDS_RESEARCH", "reasons": ["context_budget_exhausted"]} if research_blocked else None
+    pipeline, topic_id = setup_pipeline(tmp_path, drafting_input, payload={}, research=research)
+    artifact = asyncio.run(pipeline.generate(topic_id))
+    assert artifact.content_path.read_bytes() == b""
+    documents = {}
+    async def send_document(*, chat_id, document, filename):
+        content = document.read()
+        if not content:
+            raise BadRequest("File must be non-empty")
+        documents[filename] = content
+    bot = SimpleNamespace(send_message=AsyncMock(), send_document=send_document)
+    asyncio.run(TrendBotApp(pipeline=pipeline).send_review(bot, 7, artifact))
+    assert "draft.md" not in documents
+    assert artifact.status.value.encode() in documents["review.md"]
+    card = bot.send_message.call_args.kwargs
+    assert artifact.status.value in card["text"]
+    callbacks = [button.callback_data for row in card["reply_markup"].inline_keyboard for button in row if button.callback_data]
+    assert f"r:{artifact.id}" in callbacks
+    assert not any(callback.startswith("a:") for callback in callbacks)
+
+
 def test_legacy_approval_has_no_side_effects_even_from_authorized_user(tmp_path, monkeypatch):
     from src.bot.telegram_bot import TrendBotApp
     monkeypatch.setattr(settings, "telegram_chat_id", "7")
@@ -299,6 +326,9 @@ def test_group_review_requires_explicit_user_and_rejects_other_group_members(tmp
         message=SimpleNamespace(chat_id=-100123), from_user=SimpleNamespace(id=8))
     asyncio.run(app.handle_callback(SimpleNamespace(callback_query=query), SimpleNamespace(bot=bot)))
     assert pipeline.get_draft(artifact.id).status == "REVIEW_READY"
+    query.edit_message_text.assert_not_called()
+    assert query.answer.call_count == 1
+    assert query.answer.call_args.kwargs["show_alert"] is True
     query.from_user.id = 7
     asyncio.run(app.handle_callback(SimpleNamespace(callback_query=query), SimpleNamespace(bot=bot)))
     assert pipeline.get_draft(artifact.id).status == "APPROVED"
