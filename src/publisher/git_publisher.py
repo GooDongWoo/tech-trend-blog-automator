@@ -94,6 +94,45 @@ class GitPublisher:
             return "rejected"
         return "uncertain"
 
+    @staticmethod
+    def _publication_ref(remote, push_destination, branch):
+        # Explicit URL pushes may leave origin's fetch tracking ref untouched.
+        # This private ref is a confirmed publication checkpoint, not a claim
+        # that the fetch endpoint advanced (it can differ from the push target).
+        identity = json.dumps([remote, push_destination, branch], ensure_ascii=True).encode()
+        return "refs/editorial/published/" + hashlib.sha256(identity).hexdigest()
+
+    def _checkpoint_sha(self, ref):
+        try:
+            return self._git("rev-parse", "--verify", "--quiet", ref)
+        except subprocess.CalledProcessError as error:
+            if error.returncode != 1 or error.stdout or error.stderr:
+                raise
+            return None
+
+    def _is_ancestor(self, ancestor, descendant):
+        try:
+            self._git("merge-base", "--is-ancestor", ancestor, descendant)
+            return True
+        except subprocess.CalledProcessError as error:
+            if error.returncode != 1 or error.stdout or error.stderr:
+                raise
+            return False
+
+    def _record_checkpoint(self, ref, journal):
+        sha = journal["commit_sha"]
+        previous = self._checkpoint_sha(ref)
+        if previous == sha:
+            return
+        if previous:
+            # A sync retry for an older publication must not rewind the tip.
+            if self._is_ancestor(sha, previous):
+                return
+            if not self._is_ancestor(previous, journal["base_sha"]):
+                raise ValueError("confirmed publication checkpoint has unrelated history; inspect local state")
+        # Compare-and-swap prevents an external ref change from being overwritten.
+        self._git("update-ref", ref, sha, previous or "0" * 40)
+
     def _target(self, name):
         target = self.repo_path / name
         if not target.resolve().is_relative_to(self.repo_path):
@@ -193,6 +232,7 @@ class GitPublisher:
                 raise ValueError("repository publication locked; inspect interrupted worker before recovery")
             remote = self._git("remote", "get-url", "origin")
             push_destination = self._push_destination()
+            publication_ref = self._publication_ref(remote, push_destination, branch)
             if journal and journal["remote"] != remote:
                 raise ValueError("publication journal remote changed")
             if journal and journal.get("push_destination") != push_destination:
@@ -205,7 +245,11 @@ class GitPublisher:
                 if artifact.status != DraftStatus.APPROVED:
                     raise ValueError("published draft missing its push receipt")
                 base_sha = self._git("rev-parse", "HEAD")
-                if base_sha != self._git("rev-parse", "@{upstream}"):
+                upstream_sha = self._git("rev-parse", "@{upstream}")
+                if base_sha != upstream_sha and not (
+                    base_sha == self._checkpoint_sha(publication_ref)
+                    and self._is_ancestor(upstream_sha, base_sha)
+                ):
                     raise ValueError("destination HEAD differs from upstream; unrelated history must be reconciled")
                 files, published, info = self._snapshot(store, artifact)
                 for name, data in files.items():
@@ -307,6 +351,7 @@ class GitPublisher:
             if journal["phase"] != "PUSHED":
                 raise ValueError("unrecognized publication phase")
             push_confirmed = True
+            self._record_checkpoint(publication_ref, journal)
             store.save(DraftArtifact.model_validate(journal["published_artifact"]))
             if sync is not None and journal["sync_status"] != "SYNCED":
                 try:

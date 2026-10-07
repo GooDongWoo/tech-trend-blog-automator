@@ -64,7 +64,6 @@ def publication(tmp_path, monkeypatch, drafting_input):
                     output = "!\t" + git("rev-parse", "HEAD") + ":refs/heads/main\t[rejected] (fixture)\n"
                 raise subprocess.CalledProcessError(1, args, output=output, stderr=state["push_error"])
             state["remote_sha"] = git("rev-parse", "HEAD")
-            git("update-ref", "refs/remotes/origin/main", "HEAD")
             return subprocess.CompletedProcess(args, 0, state["push_output"] or ("To fixture\n \t" + state["remote_sha"] + ":refs/heads/main\tfixture -> main\nDone\n"), "")
         if args[1] == "ls-remote":
             assert args[2:] == ["--heads", git("remote", "get-url", "--push", "--all", "origin"), "refs/heads/main"]
@@ -141,6 +140,62 @@ def test_own_media_is_committed_and_other_assets_untouched(publication, catalog)
     assert p.git("diff", "--cached", "--name-only") == "assets/unrelated.gif"
 
 
+def test_sequential_distinct_publications_leave_fetch_tracking_unchanged(publication):
+    p = publication
+    fetched_sha = p.git("rev-parse", "origin/main")
+    approve(p)
+    first_artifact = p.artifact
+    first = publish(p)
+    assert first["success"], first
+    assert p.git("rev-parse", "origin/main") == fetched_sha
+    p.artifact = asyncio.run(p.pipeline.generate(p.artifact.topic_id))
+    assert p.artifact.id != first_artifact.id
+    approve(p)
+    second = publish(p)
+    assert second["success"], second
+    assert first["commit_sha"] != second["commit_sha"]
+    assert p.git("rev-parse", "HEAD^") == first["commit_sha"]
+    assert p.git("rev-list", "--count", "HEAD") == "3"
+    assert p.git("rev-parse", "origin/main") == fetched_sha
+    assert len(list((p.repo / "_posts").glob("*.md"))) == 2
+    assert p.events == ["push", "push"]
+    # Retrying an older receipt must not rewind the latest checkpoint.
+    p.artifact = first_artifact
+    assert publish(p)["commit_sha"] == first["commit_sha"]
+    p.artifact = asyncio.run(p.pipeline.generate(p.artifact.topic_id))
+    approve(p)
+    assert publish(p)["success"]
+    assert p.events == ["push", "push", "push"]
+
+
+@pytest.mark.parametrize("change", ["local_commit", "fetched_history", "fetch_url", "push_url"])
+def test_publication_checkpoint_rejects_changed_identity_or_unrelated_history(publication, change):
+    p = publication
+    if change == "fetch_url":
+        # Keep the push endpoint fixed so this independently exercises fetch identity.
+        p.git("config", "remote.origin.pushurl", p.git("remote", "get-url", "origin"))
+    approve(p)
+    first = publish(p)
+    assert first["success"], first
+    if change in {"local_commit", "fetched_history"}:
+        (p.repo / "README.md").write_text("unrelated later commit")
+        p.git("add", "README.md")
+        p.git("commit", "-m", "unrelated later commit")
+        if change == "fetched_history":
+            p.git("update-ref", "refs/remotes/origin/main", "HEAD")
+            p.git("reset", "--hard", first["commit_sha"])
+    elif change == "fetch_url":
+        p.git("remote", "set-url", "origin", str(p.repo.parent / "different-fetch"))
+    else:
+        p.git("config", "remote.origin.pushurl", str(p.repo.parent / "different-push"))
+    p.artifact = asyncio.run(p.pipeline.generate(p.artifact.topic_id))
+    approve(p)
+    result = publish(p)
+    assert not result["success"] and "upstream" in result["error"], result
+    assert p.events == ["push"]
+    assert len(list((p.repo / "_posts").glob("*.md"))) == 1
+
+
 @pytest.mark.parametrize("command", ["add", "commit", "push"])
 def test_git_failure_is_specific_and_never_syncs(publication, command):
     p = publication
@@ -191,10 +246,42 @@ def test_uncertain_push_requires_remote_reconciliation_before_sync(publication):
     assert not publish(p)["success"]
     assert not publish(p, reconcile=True)["success"]
     assert p.events == ["push"] and not p.sync.wiki_dir.exists()
+    uncertain_artifact = p.artifact
+    p.artifact = asyncio.run(p.pipeline.generate(p.artifact.topic_id))
+    approve(p)
+    next_artifact = p.artifact
+    assert not publish(p)["success"]  # An uncertain push creates no checkpoint.
+    p.artifact = uncertain_artifact
     p.state["remote_sha"] = first["commit_sha"]
     recovered = publish(p, reconcile=True)
     assert recovered["success"] and recovered["sync_status"] == "SYNCED"
     assert p.events == ["push"]
+    p.artifact = next_artifact
+    assert publish(p)["success"]  # Explicit reconciliation records a checkpoint.
+    assert p.events == ["push", "push"]
+
+
+def test_checkpoint_write_failure_preserves_receipt_and_recovers_without_push(publication):
+    p = publication
+    approve(p)
+    first_artifact = p.artifact
+    p.state["git_error"] = "update-ref"
+    first = publish(p)
+    assert first["success"] and first["status"] == "PUBLISHED", first
+    assert first["local_state_error"] == "fixture update-ref rejected"
+    assert not p.sync.wiki_dir.exists()
+    p.artifact = asyncio.run(p.pipeline.generate(p.artifact.topic_id))
+    approve(p)
+    next_artifact = p.artifact
+    assert not publish(p)["success"]
+    p.state["git_error"] = None
+    p.artifact = first_artifact
+    recovered = publish(p)
+    assert recovered["success"] and recovered["sync_status"] == "SYNCED", recovered
+    assert p.events == ["push"]
+    p.artifact = next_artifact
+    assert publish(p)["success"]
+    assert p.events == ["push", "push"]
 
 
 def test_repository_root_and_existing_post_are_protected(publication):
