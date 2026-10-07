@@ -50,6 +50,50 @@ class GitPublisher:
             raise ValueError("destination upstream must be origin/current-branch")
         return branch
 
+    def _push_destination(self):
+        # get-url resolves pushurl and configured URL rewrites. Never push a
+        # remote alias: one alias can fan out to multiple push destinations.
+        destinations = self._git("remote", "get-url", "--push", "--all", "origin").splitlines()
+        if len(destinations) != 1 or not destinations[0] or destinations[0].startswith("-"):
+            raise ValueError("publication requires exactly one effective push destination")
+        destination = destinations[0]
+        # A relative local URL can equal another remote's name. Make file paths
+        # absolute so push/ls-remote cannot reinterpret the pinned path as an alias.
+        if ":" not in destination or Path(destination).drive:
+            destination = str((self.repo_path / destination).resolve())
+        # Git rewrites explicit URLs too. An expanded URL that still matches a
+        # rewrite prefix would target a different endpoint on the second lookup.
+        try:
+            rewrites = self._git("config", "--null", "--get-regexp", r"^url\..*\.(insteadof|pushinsteadof)$")
+        except subprocess.CalledProcessError as error:
+            if error.returncode != 1 or error.stdout or error.stderr:
+                raise
+            rewrites = ""  # git config uses exit 1 for no matching keys.
+        for record in filter(None, rewrites.split("\0")):
+            key, separator, prefix = record.partition("\n")
+            if not separator or destination.startswith(prefix):
+                raise ValueError("effective push destination remains subject to a URL rewrite; use a canonical target")
+        return destination
+
+    @staticmethod
+    def _push_outcome(output, sha, branch, returncode):
+        """Accept only one porcelain receipt for the exact requested refspec.
+
+        A tag rejection cannot establish branch rejection. Mixed, missing and
+        malformed receipts leave the outcome uncertain even with exit code 0.
+        """
+        rows = [line.split("\t") for line in output.splitlines() if "\t" in line]
+        if len(rows) != 1 or len(rows[0]) != 3:
+            return "uncertain"
+        flag, refs, detail = rows[0]
+        if refs != sha + ":refs/heads/" + branch:
+            return "uncertain"
+        if returncode == 0 and flag in {" ", "=", "*", "+"}:
+            return "confirmed"
+        if returncode != 0 and flag == "!" and detail.startswith(("[rejected]", "[remote rejected]")):
+            return "rejected"
+        return "uncertain"
+
     def _target(self, name):
         target = self.repo_path / name
         if not target.resolve().is_relative_to(self.repo_path):
@@ -148,8 +192,11 @@ class GitPublisher:
             except FileExistsError:
                 raise ValueError("repository publication locked; inspect interrupted worker before recovery")
             remote = self._git("remote", "get-url", "origin")
+            push_destination = self._push_destination()
             if journal and journal["remote"] != remote:
                 raise ValueError("publication journal remote changed")
+            if journal and journal.get("push_destination") != push_destination:
+                raise ValueError("publication journal push destination changed or was not pinned")
             if journal and journal["branch"] != branch:
                 raise ValueError("publication journal branch changed")
             if journal.get("phase") == "COMMITTING":
@@ -179,7 +226,7 @@ class GitPublisher:
                     if not target.exists():
                         with target.open("xb") as output:
                             output.write(data)
-                journal = {"phase": "PREPARED", "repo": str(self.repo_path), "branch": branch, "remote": remote,
+                journal = {"phase": "PREPARED", "repo": str(self.repo_path), "branch": branch, "remote": remote, "push_destination": push_destination,
                            "content_sha256": expected_sha256, "base_sha": base_sha, "paths": list(files), "info": info,
                            "published_artifact": published.model_dump(mode="json"), "sync_status": "NOT_STARTED"}
                 write_json(journal_path, journal)
@@ -224,7 +271,7 @@ class GitPublisher:
             if journal["phase"] in {"PUSHING", "PUSH_UNCERTAIN"}:
                 if not reconcile:
                     raise ValueError("push outcome uncertain; explicitly reconcile remote SHA before retry")
-                rows = self._git("ls-remote", "--heads", "origin", "refs/heads/" + branch).splitlines()
+                rows = self._git("ls-remote", "--heads", journal["push_destination"], "refs/heads/" + branch).splitlines()
                 remote = [row.split()[0] for row in rows if row.split()[1:] == ["refs/heads/" + branch]]
                 if remote != [journal["commit_sha"]]:
                     raise ValueError("remote does not confirm this commit; push remains uncertain")
@@ -238,10 +285,14 @@ class GitPublisher:
                 journal["phase"] = "PUSHING"
                 write_json(journal_path, journal)
                 try:
-                    self._git("push", "--porcelain", "origin", journal["commit_sha"] + ":refs/heads/" + branch)
+                    output = self._git("push", "--porcelain", "--no-follow-tags", journal["push_destination"],
+                                       journal["commit_sha"] + ":refs/heads/" + branch)
+                    if self._push_outcome(output, journal["commit_sha"], branch, 0) != "confirmed":
+                        journal.update(phase="PUSH_UNCERTAIN", error="push receipt does not prove only the intended branch: " + output)
+                        write_json(journal_path, journal)
+                        raise ValueError(journal["error"])
                 except subprocess.CalledProcessError as error:
-                    output = (error.stderr or "") + "\n" + (error.stdout or "")
-                    rejected = "[rejected]" in output or "[remote rejected]" in output
+                    rejected = self._push_outcome(error.stdout or "", journal["commit_sha"], branch, error.returncode) == "rejected"
                     journal.update(phase="PUSH_FAILED" if rejected else "PUSH_UNCERTAIN",
                                    error=error.stderr or error.stdout or str(error))
                     write_json(journal_path, journal)

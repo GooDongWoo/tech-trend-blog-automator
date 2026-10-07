@@ -48,20 +48,27 @@ def publication(tmp_path, monkeypatch, drafting_input):
     pipeline, topic_id = setup_pipeline(tmp_path, drafting_input)
     artifact = asyncio.run(pipeline.generate(topic_id))
     events = []
-    state = {"push_error": None, "git_error": None, "remote_sha": None}
+    state = {"push_error": None, "git_error": None, "remote_sha": None, "transport_calls": [], "push_output": None}
     def run(args, **kwargs):
         if args[1] == "push":
-            assert args[2:] == ["--porcelain", "origin", git("rev-parse", "HEAD") + ":refs/heads/main"]
+            destinations = git("remote", "get-url", "--push", "--all", "origin").splitlines()
+            assert len(destinations) == 1
+            assert args[2:] == ["--porcelain", "--no-follow-tags", destinations[0], git("rev-parse", "HEAD") + ":refs/heads/main"]
+            state["transport_calls"].append(list(args))
             events.append("push")
             if state["push_error"] == "timeout":
                 raise subprocess.TimeoutExpired(args, 60)
             if state["push_error"]:
-                raise subprocess.CalledProcessError(1, args, stderr=state["push_error"])
+                output = state["push_output"]
+                if output is None and "[rejected]" in state["push_error"]:
+                    output = "!\t" + git("rev-parse", "HEAD") + ":refs/heads/main\t[rejected] (fixture)\n"
+                raise subprocess.CalledProcessError(1, args, output=output, stderr=state["push_error"])
             state["remote_sha"] = git("rev-parse", "HEAD")
             git("update-ref", "refs/remotes/origin/main", "HEAD")
-            return subprocess.CompletedProcess(args, 0, "confirmed", "")
+            return subprocess.CompletedProcess(args, 0, state["push_output"] or ("To fixture\n \t" + state["remote_sha"] + ":refs/heads/main\tfixture -> main\nDone\n"), "")
         if args[1] == "ls-remote":
-            assert args[2:] == ["--heads", "origin", "refs/heads/main"]
+            assert args[2:] == ["--heads", git("remote", "get-url", "--push", "--all", "origin"), "refs/heads/main"]
+            state["transport_calls"].append(list(args))
             return subprocess.CompletedProcess(args, 0, (state["remote_sha"] or "0" * 40) + "\trefs/heads/main\n", "")
         if args[1] == state["git_error"]:
             raise subprocess.CalledProcessError(1, args, stderr="fixture " + args[1] + " rejected")
@@ -446,3 +453,139 @@ def test_prepared_retry_cannot_push_intervening_unrelated_history(publication):
     result = publish(p)
     assert not result["success"] and "HEAD changed" in result["error"]
     assert p.git("rev-list", "--count", "HEAD") == "2" and p.events == []
+
+
+def test_effective_push_destination_is_pinned_for_push_and_reconciliation(publication):
+    p = publication
+    destination = str(p.repo.parent / "actual-push-target")
+    p.git("config", "remote.origin.pushurl", destination)
+    approve(p)
+    p.state["push_error"] = "timeout"
+    result = publish(p)
+    assert result["status"] == "PUSH_UNCERTAIN"
+    assert p.state["transport_calls"][0][-2] == destination
+    journal = json.loads((p.artifact.content_path.parent / "publication.json").read_text())
+    assert journal["push_destination"] == destination
+    p.state["push_error"] = None
+    p.state["remote_sha"] = result["commit_sha"]
+    recovered = publish(p, reconcile=True)
+    assert recovered["success"]
+    assert p.state["transport_calls"][-1][-2] == destination
+
+
+def test_changed_effective_pushurl_blocks_same_sha_retry(publication):
+    p = publication
+    p.git("config", "remote.origin.pushurl", str(p.repo.parent / "initial-target"))
+    approve(p)
+    p.state["push_error"] = "[rejected] branch rejected"
+    assert not publish(p)["success"]
+    p.git("config", "remote.origin.pushurl", str(p.repo.parent / "different-target"))
+    p.state["push_error"] = None
+    result = publish(p)
+    assert not result["success"] and "push destination changed" in result["error"]
+    assert p.events == ["push"]
+
+
+def test_multiple_pushurls_are_rejected_before_copy(publication):
+    p = publication
+    p.git("config", "--add", "remote.origin.pushurl", str(p.repo.parent / "target-one"))
+    p.git("config", "--add", "remote.origin.pushurl", str(p.repo.parent / "target-two"))
+    approve(p)
+    result = publish(p)
+    assert not result["success"] and "exactly one" in result["error"]
+    assert not (p.repo / "_posts").exists() and p.events == []
+
+
+def test_push_disables_followtags_and_proves_only_requested_branch(publication):
+    p = publication
+    p.git("config", "push.followTags", "true")
+    p.git("tag", "-a", "unrelated-annotated", "-m", "unrelated tag")
+    approve(p)
+    result = publish(p)
+    assert result["success"]
+    assert "--no-follow-tags" in p.state["transport_calls"][0]
+
+
+def test_branch_success_with_tag_rejection_requires_reconciliation(publication):
+    p = publication
+    approve(p)
+    # Fake the transport result below the real commit, retaining its known SHA.
+    original = p.publisher.runner
+    def mixed(args, **kwargs):
+        if args[1] == "push":
+            sha = p.git("rev-parse", "HEAD")
+            p.events.append("push")
+            p.state["remote_sha"] = sha
+            output = f"To fixture\n \t{sha}:refs/heads/main\tbranch accepted\n!\trefs/tags/unrelated:refs/tags/unrelated\t[remote rejected] (tag denied)\n"
+            raise subprocess.CalledProcessError(1, args, output=output, stderr="error: failed to push some refs")
+        return original(args, **kwargs)
+    p.publisher.runner = mixed
+    first = publish(p)
+    assert not first["success"] and first["status"] == "PUSH_UNCERTAIN"
+    p.publisher.runner = original
+    assert publish(p)["status"] == "PUSH_UNCERTAIN" and p.events == ["push"]
+    assert not p.sync.wiki_dir.exists()
+    assert publish(p, reconcile=True)["success"] and p.events == ["push"]
+
+
+def test_zero_exit_without_branch_receipt_is_uncertain(publication):
+    p = publication
+    approve(p)
+    p.state["push_output"] = "To fixture\nDone\n"
+    result = publish(p)
+    assert not result["success"] and result["status"] == "PUSH_UNCERTAIN"
+    assert not p.sync.wiki_dir.exists()
+
+
+@pytest.mark.parametrize("exit_code,output,expected", [
+    (0, "To fixture\n \taaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:refs/heads/main\taccepted\nDone\n", "confirmed"),
+    (0, "=\taaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:refs/heads/main\t[up to date]\n", "confirmed"),
+    (1, "!\taaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:refs/heads/main\t[rejected] (non-fast-forward)\n", "rejected"),
+    (1, "!\trefs/tags/unrelated:refs/tags/unrelated\t[rejected] (tag)\n", "uncertain"),
+    (1, " \taaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:refs/heads/main\taccepted\n!\trefs/tags/unrelated:refs/tags/unrelated\t[remote rejected] (tag)\n", "uncertain"),
+    (0, "Done\n", "uncertain"),
+    (1, "fatal: connection closed\n", "uncertain"),
+    (0, "!\taaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:refs/heads/main\t[rejected]\n", "uncertain"),
+])
+def test_porcelain_receipt_requires_exact_intended_branch(exit_code, output, expected):
+    assert GitPublisher._push_outcome(output, "a" * 40, "main", exit_code) == expected
+
+
+def test_relative_push_path_matching_remote_alias_is_explicit_local_destination(publication):
+    p = publication
+    p.git("config", "remote.origin.pushurl", "deployment")
+    p.git("remote", "add", "deployment", str(p.repo.parent / "wrong-alias-target"))
+    approve(p)
+    original = p.publisher.runner
+    calls = []
+    def transport(args, **kwargs):
+        if args[1] == "push":
+            calls.append(args)
+            sha = p.git("rev-parse", "HEAD")
+            return subprocess.CompletedProcess(args, 0, f"To fixture\n \t{sha}:refs/heads/main\taccepted\nDone\n", "")
+        return original(args, **kwargs)
+    p.publisher.runner = transport
+    result = publish(p)
+    assert result["success"]
+    assert calls[0][-2] == str((p.repo / "deployment").resolve())
+
+
+@pytest.mark.parametrize("rewrite_kind", ["insteadOf", "pushInsteadOf"])
+def test_expanded_push_destination_cannot_be_rewritten_again(publication, rewrite_kind):
+    p = publication
+    p.git("config", "remote.origin.pushurl", "https://alias.example.invalid/repo")
+    p.git("config", "url.https://first.example.invalid/.insteadOf", "https://alias.example.invalid/")
+    p.git("config", "url.https://second.example.invalid/." + rewrite_kind, "https://first.example.invalid/")
+    assert p.git("remote", "get-url", "--push", "--all", "origin") == "https://first.example.invalid/repo"
+    approve(p)
+    original = p.publisher.runner
+    def transport(args, **kwargs):
+        if args[1] == "push":
+            p.events.append("push")
+            sha = p.git("rev-parse", "HEAD")
+            return subprocess.CompletedProcess(args, 0, f"To fixture\n \t{sha}:refs/heads/main\taccepted\nDone\n", "")
+        return original(args, **kwargs)
+    p.publisher.runner = transport
+    result = publish(p)
+    assert not result["success"] and "rewrite" in result["error"]
+    assert not (p.repo / "_posts").exists() and p.events == []
