@@ -309,3 +309,59 @@ class DraftArtifact(Contract):
         data = self.model_dump()
         data.update(status=target, approved_sha256=self.content_sha256 if target in {DraftStatus.APPROVED, DraftStatus.PUBLISHED} else None)
         return type(self).model_validate(data)
+
+
+class ClaimMapping(Contract):
+    """A core technical assertion, explicitly bounded to prose and evidence IDs."""
+    sentence: NonEmpty
+    kind: Literal["source_claim", "measurement", "inference"]
+    evidence_ids: tuple[NonEmpty, ...] = ()
+    run_ids: tuple[NonEmpty, ...] = ()
+    role: Literal["context", "mechanism", "alternative", "constraint", "decision", "reversal"] = "context"
+
+
+class DraftSection(Contract):
+    id: Annotated[str, StringConstraints(pattern=r"^[A-Za-z][A-Za-z0-9_-]{0,63}$")]
+    text: NonEmpty
+    claims: tuple[ClaimMapping, ...] = ()
+
+
+class ValidationIssue(Contract):
+    code: NonEmpty
+    section_id: NonEmpty | None = None
+    sentence: str = ""
+    detail: str = ""
+    check: Literal["static", "grounding"] = "static"
+
+
+class ValidationReport(Contract):
+    status: Literal["NEEDS_REVISION", "REVIEW_READY"]
+    issues: tuple[ValidationIssue, ...] = ()
+    static_passed: bool = False
+    grounding_passed: bool = False
+    warnings: tuple[NonEmpty, ...] = ()
+
+
+class DraftPayload(Contract):
+    """Only these fields may be supplied by the model."""
+    frontmatter: str
+    sections: tuple[DraftSection, ...] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def unique_sections(self):
+        if len({section.id for section in self.sections}) != len(self.sections):
+            raise ValueError("duplicate draft section IDs")
+        return self
+
+
+class DraftText(Contract):
+    frontmatter: str = ""
+    sections: tuple[DraftSection, ...] = ()
+    packet: ResearchPacket | None = None
+    report: ValidationReport | None = None
+    policy_version: NonEmpty = "1.0"
+    revision_attempts: int = Field(default=0, ge=0, le=2)
+
+    @property
+    def content(self) -> str:
+        return "\n\n".join(part for part in (self.frontmatter, *(section.text for section in self.sections)) if part)

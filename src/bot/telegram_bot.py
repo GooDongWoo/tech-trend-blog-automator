@@ -149,6 +149,16 @@ class TrendBotApp:
 
             # Asynchronously write blog post
             draft_result = await self.writer.generate_post(topic)
+            # Unit 4 results are local review artifacts. Unit 6 must bind a
+            # full review/approval before enabling publication for this format.
+            if draft_result.get("publishable") is False or draft_result.get("status") in {"NEEDS_RESEARCH", "NEEDS_REVISION", "REVIEW_READY"}:
+                self.last_draft = None
+                status = draft_result.get("status", "NEEDS_REVISION")
+                reasons = ", ".join(draft_result.get("reasons", []))
+                path = draft_result.get("file_path", "")
+                await context.bot.send_message(chat_id=query.message.chat_id,
+                    text=f"초안 상태: {status}\n{reasons}\n로컬 검토 파일: {path}\n전체 초안과 근거 보고서 검토가 필요합니다.")
+                return
             self.last_draft = draft_result
 
             # Send preview and approval buttons
@@ -179,6 +189,10 @@ class TrendBotApp:
         if data == "approve_push":
             if not self.last_draft:
                 await query.edit_message_text("❌ 배포할 초안 정보를 찾을 수 없습니다.")
+                return
+
+            if self.last_draft.get("publishable") is False or self.last_draft.get("status") in {"NEEDS_RESEARCH", "NEEDS_REVISION", "REVIEW_READY"}:
+                await query.edit_message_text("로컬 검토 초안은 특정 초안의 전체 검토와 승인이 필요합니다.")
                 return
 
             await query.edit_message_text("🚀 GitHub Pages에 푸시하고 Obsidian 볼트와 동기화 중입니다...")

@@ -1,195 +1,88 @@
-import datetime
-import re
+"""Review-only compatibility adapter for the evidence-led drafting pipeline."""
+import asyncio
+import hashlib
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any
 
 from config import settings
 from src.curator.matcher import CuratedTopic
+from src.editorial.brief import build_brief
+from src.editorial.draft import LLMClient, write_draft
+from src.editorial.models import ResearchBlocked, ResearchPacket, UserContext
+from src.editorial.validate import parse_frontmatter
 from .deep_researcher import DeepResearcher
-from .meme_manager import MemeManager
 
 
 class BlogWriter:
-    """Generates humorous, witty, anti-AI developer blog posts in Jekyll format."""
+    """Produce local review artifacts; publishing is a separate approval boundary."""
 
-    def __init__(self, blog_repo_path: Optional[Path] = None):
+    def __init__(self, blog_repo_path: Path | None = None, *, artifact_dir: Path | None = None, llm: LLMClient | None = None):
         self.blog_repo_path = blog_repo_path or settings.blog_repo_path
-        self.posts_dir = self.blog_repo_path / "_posts"
-        self.posts_dir.mkdir(parents=True, exist_ok=True)
+        self.posts_dir = self.blog_repo_path / "_posts"  # Compatibility path only.
+        self.artifact_dir = artifact_dir or Path("temp/drafts")
         self.researcher = DeepResearcher()
-        self.meme_mgr = MemeManager(self.blog_repo_path)
+        self.llm = llm or self
 
     def _call_llm(self, prompt: str) -> str:
         if settings.gemini_api_key:
             from google import genai
             client = genai.Client(api_key=settings.gemini_api_key)
-            models_to_try = [
-                settings.gemini_model,
-                "gemini-3.8-flash",
-                "gemini-3.7-flash",
-                "gemini-3-flash-preview",
-                "gemini-3.6-flash",
-                "gemini-3.5-flash-lite",
-                "gemini-3.1-flash-lite",
-                "gemini-flash-latest",
-            ]
-            models_to_try = list(dict.fromkeys(models_to_try))
-            import time
-            for model_name in models_to_try:
-                for attempt in range(3):
-                    try:
-                        response = client.models.generate_content(
-                            model=model_name,
-                            contents=prompt
-                        )
-                        if response.text:
-                            return response.text
-                    except Exception as e:
-                        print(f"[BlogWriter] Gemini {model_name} failed: {e}. Trying next fallback...")
-                        break
-
-
-
+            response = client.models.generate_content(model=settings.gemini_model, contents=prompt)
+            return response.text or ""
         if settings.openai_api_key:
-            try:
-                from openai import OpenAI
-                client = OpenAI(api_key=settings.openai_api_key)
-                response = client.chat.completions.create(
-                    model="gpt-4o",
-                    messages=[{"role": "user", "content": prompt}]
-                )
-                return response.choices[0].message.content or ""
-            except Exception as e:
-                print(f"[BlogWriter] OpenAI API call failed: {e}")
+            from openai import OpenAI
+            client = OpenAI(api_key=settings.openai_api_key)
+            response = client.chat.completions.create(model="gpt-4o", messages=[{"role": "user", "content": prompt}])
+            return response.choices[0].message.content or ""
+        raise RuntimeError("draft_llm_unavailable")
 
-        # Fallback template if no LLM key
-        print("[BlogWriter] No LLM API key. Using fallback template.")
-        return ""
+    def generate(self, prompt: str) -> str:
+        return self._call_llm(prompt)
 
-    def _slugify(self, title: str) -> str:
-        """Create a clean url-friendly slug."""
-        slug = re.sub(r"[^\w\s-]", "", title).strip().lower()
-        slug = re.sub(r"[\s_-]+", "-", slug)
-        return slug[:50] or "tech-trend-post"
-
-    async def generate_post(self, topic: CuratedTopic) -> Dict[str, Any]:
-        """Deep research topic and generate a Jekyll blog post draft."""
-        # 1. Deep research
-        research_data = await self.researcher.research(topic)
-        if research_data.get("status") == "NEEDS_RESEARCH":
-            return research_data
-
-        # 2. Pick memes
-        meme1 = self.meme_mgr.get_random_meme()
-        meme2 = self.meme_mgr.get_random_meme()
-        meme_md1 = self.meme_mgr.format_meme_markdown(meme1)
-        meme_md2 = self.meme_mgr.format_meme_markdown(meme2)
-
-        today_str = datetime.date.today().strftime("%Y-%m-%d")
-        now_time_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S +0900")
-
-        prompt = f"""
-너는 위트 있고 글 잘 쓰기로 소문난 시니어 개발자 블로거다.
-최근 핫한 기술 트렌드인 [{topic.title}]에 대한 심층 분석 블로그 글을 작성하라.
-
-[핵심 글쓰기 규칙 - 절대 엄수!]
-1. **문체**: 무조건 **평어체**(`~했다`, `~다`, `~인 셈이다`, `~잖아?`)를 쓴다. 존댓말 경어체는 일체 쓰지 않는다.
-2. **탈(脫) AI (Anti-AI) 스타일**:
-   - AI 특유의 뻔한 서두("최근 인공지능 기술의 발전으로...", "이번 글에서는 ~를 살펴보겠습니다") 절대 금지!
-   - 첫 문장은 현실적인 개발자 시선, 황당했던 경험, 혹은 강렬한 훅(Hook)으로 바로 본론으로 돌진한다.
-     (예: "어느 날 평화롭게 깃허브를 떠돌다가 충격적인 레포를 봤다.", "또 새로운 도구가 나왔다. 솔직히 처음엔 '또 뭔 신기술이야' 싶었다.")
-   - AI 특유의 상투적 결론("앞으로의 귀추가 주목된다", "우리의 삶을 혁신할 것이다") 절대 금지!
-     (대신: "그래서 내 프로젝트에 쓸 거냐고? 솔직히 말하면...", "한 줄 총평: ~다.")
-3. **유쾌함과 팩트의 조화**:
-   - 실무 개발자가 겪는 현실적 고민, 자조적 유머, 찰진 비유를 곁들인다.
-   - 하지만 기술적 알맹이(작동 원리, 아키텍처, 벤치마크, 기존 기술과의 명확한 차이점)는 매우 날카롭고 깊이 있게 설명한다.
-4. **시각적 요소 & 짤방 배치**:
-   - 글 중간에 `[MEME_1]`과 `[MEME_2]` 플레이스홀더를 각각 1개씩 적절한 문맥에 배치하라.
-   - 아키텍처나 구조 설명 시 ````mermaid ... ```` 다이어그램을 적절히 포함하라.
-5. **Jekyll Frontmatter**:
-   - 문서 맨 위에 아래 Frontmatter를 반드시 포함하라:
----
-layout: post
-title: "위트 있고 직관적인 한국어 제목"
-date: {now_time_str}
-categories: [Tech, AI]
-tags: [트렌드, 개발, 오픈소스]
----
-
-[참고 자료]
-- 주제: {topic.title}
-- 출처: {topic.source} ({topic.url})
-- 추천 각도: {topic.suggested_angle}
-- 수집된 원문 데이터:
-{research_data.get('context', research_data['raw_content'])}
-"""
-
-        generated_raw = self._call_llm(prompt)
-
-        # If LLM didn't return, fallback post
-        if not generated_raw or "layout: post" not in generated_raw:
-            post_title = f"{topic.title} - 실무 개발자가 뜯어본 솔직 후기"
-            post_body = f"""---
-layout: post
-title: "{post_title}"
-date: {now_time_str}
-categories: [Tech, Trend]
-tags: [개발, 오픈소스, 기술트렌드]
----
-
-오늘도 평화롭게 깃허브를 서핑하다가 눈에 띄는 녀석을 발견했다. 바로 **{topic.title}**이다.
-
-[MEME_1]
-
-## 1. 도대체 뭐 하는 녀석인가?
-
-한 줄로 요약하면 {topic.one_line_summary}인 셈이다.
-
-솔직히 처음엔 '또 새로운 프레임워크야?' 싶었는데, 내용을 까보니 꽤나 흥미로운 구석이 있다.
-
-```mermaid
-graph TD
-    A[기존 방식의 비효율] --> B[새로운 접근법: {topic.title}]
-    B --> C[개발 생산성 향상]
-```
-
-## 2. 왜 주목받고 있을까?
-
-- **출처**: [{topic.source}]({topic.url})
-- **주요 포인트**: {topic.suggested_angle}
-
-[MEME_2]
-
-## 3. 그래서 내 프로젝트에 쓸만한가?
-
-결론부터 말하자면, 확실히 가려운 곳을 긁어주는 면이 있다. 
-다만 늘 그렇듯 은총알은 없으니 내 시스템의 제약 조건을 잘 따져보고 도입을 고민해볼 만하다.
-
-- **원문 링크**: [{topic.url}]({topic.url})
-"""
-            generated_raw = post_body
-
-        # Replace meme placeholders
-        final_content = generated_raw.replace("[MEME_1]", meme_md1).replace("[MEME_2]", meme_md2)
-
-        # Extract title from frontmatter
-        title_match = re.search(r'title:\s*"([^"]+)"', final_content) or re.search(r"title:\s*([^\n]+)", final_content)
-        title = title_match.group(1).strip() if title_match else topic.title
-
-        # Determine file slug and path
-        slug = self._slugify(topic.title)
-        filename = f"{today_str}-{slug}.md"
-        target_path = self.posts_dir / filename
-
-        # Write post file
-        target_path.write_text(final_content, encoding="utf-8")
-
-        return {
-            "title": title,
-            "filename": filename,
-            "file_path": str(target_path),
-            "relative_path": f"_posts/{filename}",
-            "slug": slug,
-            "content": final_content,
-            "topic": topic
-        }
+    async def generate_post(self, topic: CuratedTopic, *, user_context: UserContext | None = None) -> dict[str, Any]:
+        research = await self.researcher.research(topic)
+        packet = research.get("packet")
+        if research.get("status") == "NEEDS_RESEARCH":
+            return {**research, "publishable": False}
+        if not isinstance(packet, ResearchPacket):
+            return {"status": "NEEDS_RESEARCH", "reasons": ["research_packet_missing"], "packet": packet, "publishable": False}
+        brief = build_brief(packet, user_context or UserContext())
+        if isinstance(brief, ResearchBlocked):
+            return {"status": brief.status, "reasons": list(brief.reasons), "packet": packet, "brief": brief, "publishable": False}
+        draft = await asyncio.to_thread(write_draft, brief, packet, self.llm)
+        result = {"status": draft.report.status, "publishable": False, "topic": topic, "packet": packet,
+            "brief": brief, "draft": draft, "validation": draft.report, "content": draft.content,
+            "reasons": [issue.code for issue in draft.report.issues]}
+        identity = hashlib.sha256((packet.model_dump_json() + brief.model_dump_json() + draft.model_dump_json()).encode()).hexdigest()[:24]
+        directory = self.artifact_dir / identity
+        try:
+            # Intermediate artifacts are local review outputs, never blog _posts.
+            directory.mkdir(parents=True, exist_ok=True)
+            for name, model in (("packet", packet), ("brief", brief), ("draft", draft), ("validation", draft.report)):
+                (directory / f"{name}.json").write_text(model.model_dump_json(indent=2), encoding="utf-8")
+            packet_md = f"# Evidence packet\n\nQuestion: {packet.question}\nTopic: {packet.topic_id}\n"
+            packet_md += "\n## Source snapshots\n\n" + "\n".join(
+                f"- {source.url} [{source.role}]; SHA-256: {source.sha256}; error: {source.error}" for source in packet.sources)
+            packet_md += "\n\n## Located evidence\n\n" + "\n\n".join(
+                f"E{index + 1} [{claim.kind}, {claim.status}]: {claim.text}\n" + "; ".join(
+                    f"{ref.url} [{ref.location}] SHA-256: {ref.sha256}" for ref in claim.source_refs)
+                for index, claim in enumerate(packet.claims))
+            (directory / "packet.md").write_text(packet_md + "\n", encoding="utf-8")
+            brief_md = f"# Editorial brief\n\nKind: {brief.post_kind}\nPolicy: {brief.policy_version}\nQuestion: {brief.question}\n"
+            for label, values in (("Thesis", (brief.thesis,)), ("Mechanism", (brief.key_mechanism,)),
+                ("Alternatives", brief.comparison), ("Criteria", brief.decision_criteria), ("Reversal", brief.reversal_conditions)):
+                brief_md += f"\n## {label}\n\n" + "\n".join(f"- {value}" for value in values)
+            (directory / "brief.md").write_text(brief_md + "\n", encoding="utf-8")
+            (directory / "draft.md").write_text(draft.content, encoding="utf-8")
+            report_md = f"# {draft.report.status}\n\nStatic: {draft.report.static_passed}\nGrounding: {draft.report.grounding_passed}\n"
+            report_md += "\n".join(f"- {issue.code} [{issue.section_id or 'document'}]: {issue.detail}" for issue in draft.report.issues)
+            report_md += "\n\nWarnings:\n" + "\n".join(f"- {warning}" for warning in draft.report.warnings)
+            (directory / "validation.md").write_text(report_md + "\n", encoding="utf-8")
+        except OSError as error:
+            return {**result, "status": "NEEDS_REVISION", "reasons": [*result["reasons"], "draft_artifact_write_failed", type(error).__name__]}
+        try:
+            title = parse_frontmatter(draft.frontmatter)["title"]
+        except (ValueError, TypeError):
+            title = topic.title
+        return {**result, "id": identity, "title": title, "filename": "draft.md", "file_path": str(directory / "draft.md"),
+            "evidence_path": str(directory / "packet.json"), "report_path": str(directory / "validation.json")}

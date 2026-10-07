@@ -26,9 +26,29 @@ Create a reviewable draft, with headings chosen for the actual source material.
   not require an experiment or ablation table.
 - User interests and Vault references may guide criteria. They do not establish
   expertise or personal experience. Missing knowledge depth is unknown.
-- First-person experience requires an explicitly attached inspectable run log or
-  user-authored statement explicitly marked for publication. Do not invent a run,
+- First-person experience requires an explicitly attached inspectable run log.
+  A public user-authored statement can provide context. Do not invent a run,
   outage, deployment, metric or personal story from notes or model prose.
 - Label local string searches as local_search, never as RAG evidence.
 - No live publishing, Git blog write, Vault write or indexing without specific
   reviewed-draft approval. Existing published posts are read-only examples.
+
+## Drafting and revision contract
+
+- Draft and targeted revision prompts must load this runtime policy. Maintenance
+  AGENTS.md is not a prompt and cannot supply editorial rules to the pipeline.
+- Map core technical assertions, numerical results and experience sentences to
+  stable packet evidence IDs or supplied run IDs. Signposts, questions and
+  conditional editorial opinions need no artificial source IDs.
+- Cite packet references only. Show original-author attribution and literal
+  supporting prose; a valid citation alone is not support for a new assertion.
+- Mark inference visibly, with source premises and conditional choice criteria.
+  Include a concrete mechanism, meaningful alternative and reversal condition.
+- Headings, diagrams, code, numbers and memes are optional, selected by content.
+- Our first-person use requires an explicitly supplied inspectable run log even
+  when a user-authored experience statement is marked for publication. An
+  original author's first-person report remains their attributed quotation.
+- Numerical results require the original author's value/unit, target, baseline
+  and conditions. An inference must not introduce unverified quantitative results.
+- Static and evidence cross-checks must both pass. Repair only implicated sections,
+  at most twice; unresolved failures remain NEEDS_REVISION with their packet.

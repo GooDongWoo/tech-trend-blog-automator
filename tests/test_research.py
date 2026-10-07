@@ -237,10 +237,10 @@ def test_writer_propagates_research_failure_without_draft(topic, http_fixture, t
     writer = BlogWriter(tmp_path / "blog")
     result = asyncio.run(writer.generate_post(topic))
     assert result["status"] == "NEEDS_RESEARCH"
-    assert list(writer.posts_dir.iterdir()) == []
+    assert not writer.blog_repo_path.exists()
 
 
-def test_writer_prompt_uses_relevance_context_instead_of_prefix(topic, http_fixture, tmp_path, monkeypatch):
+def test_writer_requires_complete_brief_before_generation(topic, http_fixture, tmp_path, monkeypatch):
     from src.writer.blog_writer import BlogWriter
     body = ("<article><h2>Setup</h2>" + "<p>Unrelated setup paragraph.</p>" * 160
             + '<h2 id="retry">Retry behavior</h2><p>A failed worker leaves the job pending for retry.</p></article>').encode()
@@ -248,9 +248,11 @@ def test_writer_prompt_uses_relevance_context_instead_of_prefix(topic, http_fixt
     writer = BlogWriter(tmp_path / "blog")
     prompts = []
     monkeypatch.setattr(writer, "_call_llm", lambda prompt: prompts.append(prompt) or "")
-    asyncio.run(writer.generate_post(topic))
-    assert "pending for retry" in prompts[0]
-    assert "[section:2:retry]" in prompts[0]
+    result = asyncio.run(writer.generate_post(topic))
+    assert result["status"] == "NEEDS_RESEARCH"
+    assert "missing_post_kind" in result["reasons"]
+    assert prompts == []
+    assert "pending for retry" in result["packet"].sources[0].text
 
 
 def test_source_metadata_round_trips_without_losing_snapshot(topic, http_fixture):

@@ -5,7 +5,6 @@ the unit that must replace the assertion when its implementation changes.
 """
 import asyncio
 import json
-import shutil
 import socket
 import subprocess
 from pathlib import Path
@@ -15,6 +14,7 @@ from unittest.mock import AsyncMock, Mock
 import httpx
 import pytest
 
+from drafting_fixtures import drafting_input
 from src.curator.matcher import CuratedTopic
 from src.writer.blog_writer import BlogWriter
 from src.writer.deep_researcher import DeepResearcher
@@ -67,11 +67,6 @@ def fake_http(monkeypatch, tmp_path):
     return responses, requests
 
 
-def fake_research(writer, topic):
-    writer.researcher.research = AsyncMock(return_value={
-        "raw_content": (FIXTURES / "README.md").read_text(encoding="utf-8")})
-
-
 def test_html_and_readme_use_local_known_claims(topic, fake_http):
     responses, requests = fake_http
     responses[topic.url] = httpx.Response(200, content=(FIXTURES / "source.html").read_bytes())
@@ -99,38 +94,28 @@ def test_pdf_body_has_page_provenance(topic, fake_http):
     assert requests == [topic.url]
 
 
-@pytest.mark.current_behavior(owner="Unit 4: writer")
-def test_current_empty_llm_writes_success_shaped_template(topic, tmp_path, monkeypatch):
-    writer = BlogWriter(tmp_path / "blog")
-    fake_research(writer, topic)
-    responses = json.loads((FIXTURES / "llm-responses.json").read_text(encoding="utf-8"))
-    monkeypatch.setattr(writer, "_call_llm", lambda prompt: responses["empty"])
+def test_empty_llm_stays_blocked_without_fallback(topic, drafting_input, tmp_path, monkeypatch):
+    packet, _ = drafting_input
+    writer = BlogWriter(tmp_path / "blog", artifact_dir=tmp_path / "drafts")
+    writer.researcher.research = AsyncMock(return_value={"packet": packet})
+    monkeypatch.setattr(writer, "_call_llm", lambda prompt: "")
     result = asyncio.run(writer.generate_post(topic))
-    assert Path(result["file_path"]).is_relative_to(tmp_path)
-    assert Path(result["file_path"]).read_text(encoding="utf-8") == result["content"]
-    assert "layout: post" in result["content"]
-    assert "실무 개발자가 뜯어본 솔직 후기" in result["title"]
-    assert "오늘도 평화롭게 깃허브를 서핑" in result["content"]
-    assert "status" not in result  # No blocked status distinguishes the fallback.
+    assert result["status"] == "NEEDS_REVISION"
+    assert result["content"] == ""
+    assert result["packet"] == packet
+    assert not (tmp_path / "blog").exists()
 
 
-@pytest.mark.current_behavior(owner="Unit 5: media")
-def test_current_two_memes_inserted_without_topic_matching(topic, tmp_path, monkeypatch):
-    writer = BlogWriter(tmp_path / "blog")
-    fake_research(writer, topic)
-    shutil.copyfile(FIXTURES / "local.gif", writer.meme_mgr.memes_dir / "local.gif")
-    unrelated = {"caption": "A white pixel unrelated to queues", "url": "/assets/images/memes/local.gif"}
-    choose = Mock(return_value=unrelated)
-    monkeypatch.setattr(writer.meme_mgr, "get_random_meme", choose)
+def test_writer_never_inserts_random_memes_into_failed_draft(topic, drafting_input, tmp_path, monkeypatch):
+    packet, _ = drafting_input
+    writer = BlogWriter(tmp_path / "blog", artifact_dir=tmp_path / "drafts")
+    writer.researcher.research = AsyncMock(return_value={"packet": packet})
     responses = json.loads((FIXTURES / "llm-responses.json").read_text(encoding="utf-8"))
     monkeypatch.setattr(writer, "_call_llm", lambda prompt: responses["unsupported_quantitative"])
     result = asyncio.run(writer.generate_post(topic))
-    assert choose.call_count == 2
-    assert all(not call.args and not call.kwargs for call in choose.call_args_list)
-    assert result["content"].count("![]") == 0
-    assert result["content"].count("![A white pixel unrelated to queues]") == 2
-    assert responses["unsupported_claim"] in result["content"]
-    assert "[MEME_" not in result["content"]
+    assert result["status"] == "NEEDS_REVISION"
+    assert result["content"] == ""
+    assert not (tmp_path / "blog" / "assets").exists()
 
 
 @pytest.mark.current_behavior(owner="Unit 6: approval/publish")
