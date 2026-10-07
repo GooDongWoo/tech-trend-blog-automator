@@ -8,7 +8,8 @@ from config import settings
 from src.curator.matcher import CuratedTopic
 from src.editorial.brief import build_brief
 from src.editorial.draft import LLMClient, write_draft
-from src.editorial.models import ResearchBlocked, ResearchPacket, UserContext
+from src.editorial.media import MemeCatalog, apply_media, load_catalog
+from src.editorial.models import ResearchBlocked, ResearchPacket, UserContext, ValidationIssue
 from src.editorial.validate import parse_frontmatter
 from .deep_researcher import DeepResearcher
 
@@ -16,12 +17,13 @@ from .deep_researcher import DeepResearcher
 class BlogWriter:
     """Produce local review artifacts; publishing is a separate approval boundary."""
 
-    def __init__(self, blog_repo_path: Path | None = None, *, artifact_dir: Path | None = None, llm: LLMClient | None = None):
+    def __init__(self, blog_repo_path: Path | None = None, *, artifact_dir: Path | None = None, llm: LLMClient | None = None, media_catalog: MemeCatalog | None = None):
         self.blog_repo_path = blog_repo_path or settings.blog_repo_path
         self.posts_dir = self.blog_repo_path / "_posts"  # Compatibility path only.
         self.artifact_dir = artifact_dir or Path("temp/drafts")
         self.researcher = DeepResearcher()
         self.llm = llm or self
+        self.media_catalog = media_catalog
 
     def _call_llm(self, prompt: str) -> str:
         if settings.gemini_api_key:
@@ -50,8 +52,16 @@ class BlogWriter:
         if isinstance(brief, ResearchBlocked):
             return {"status": brief.status, "reasons": list(brief.reasons), "packet": packet, "brief": brief, "publishable": False}
         draft = await asyncio.to_thread(write_draft, brief, packet, self.llm)
+        try:
+            catalog = self.media_catalog if self.media_catalog is not None else load_catalog()
+            draft, media_choice = apply_media(brief, draft, catalog)
+        except (OSError, ValueError):
+            report = draft.report.model_copy(update={"status": "NEEDS_REVISION", "static_passed": False,
+                "issues": (*draft.report.issues, ValidationIssue(code="media_catalog_unavailable"))})
+            draft = draft.model_copy(update={"report": report})
+            media_choice = None
         result = {"status": draft.report.status, "publishable": False, "topic": topic, "packet": packet,
-            "brief": brief, "draft": draft, "validation": draft.report, "content": draft.content,
+            "brief": brief, "draft": draft, "validation": draft.report, "content": draft.content, "media_choice": media_choice,
             "reasons": [issue.code for issue in draft.report.issues]}
         identity = hashlib.sha256((packet.model_dump_json() + brief.model_dump_json() + draft.model_dump_json()).encode()).hexdigest()[:24]
         directory = self.artifact_dir / identity

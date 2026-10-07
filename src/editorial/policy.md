@@ -45,6 +45,11 @@ Create a reviewable draft, with headings chosen for the actual source material.
 - Mark inference visibly, with source premises and conditional choice criteria.
   Include a concrete mechanism, meaningful alternative and reversal condition.
 - Headings, diagrams, code, numbers and memes are optional, selected by content.
+  Media is chosen only after the written argument passes validation. Prefer a
+  useful diagram, code fragment or result table to a GIF. At most one registered
+  GIF may appear, with its inspected factual alt and documented usage permission.
+  Unknown rights or uninspected/changed bytes exclude an asset. Do not supply GIFs,
+  duplicate captions, scene-explanation prose or imagined dialogue in LLM drafts.
 - Our first-person use requires an explicitly supplied inspectable run log even
   when a user-authored experience statement is marked for publication. An
   original author's first-person report remains their attributed quotation.

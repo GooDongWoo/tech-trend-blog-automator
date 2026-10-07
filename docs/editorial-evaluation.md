@@ -40,13 +40,22 @@ Keys below identify exact paths and frozen hashes in the manifest.
 | Post key | Type | Depth | Provenance | Decision | Naturalness | Meme fit | Evidence behind rating |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
 | Stagehand | library/tool | 3 | 1 | 2 | 2 | 2 | `observe/act/extract` examples and limitations add detail; “2배/80%” lacks a source link and conditions; final “그냥 이거 써라” overrides qualifications; opening invoice narrative has no supplied log; generic two captions. |
-| ai-memory | library/tool | 3 | 1 | 3 | 2 | 1 | Markdown/SQLite/hooks architecture and privacy discussion; zero links for Rust/version and integration claims; heavy multi-tool users are a choice boundary; two conflicting invented scene descriptions for the same GIF path. |
+| ai-memory | library/tool | 3 | 1 | 3 | 2 | 1 | Markdown/SQLite/hooks architecture and privacy discussion; zero links for Rust/version and integration claims; heavy multi-tool users are a choice boundary; two conflicting unsupported scene descriptions for the same GIF path. |
 | GAVEL | paper/benchmark | 2 | 1 | 3 | 2 | 1 | Graph/planner diagram but no paper location, experiment table, measured baseline, or ablation; graph construction cost/domain boundaries help the decision; two scene explanations have no supporting media record. |
-| cua | library/tool | 3 | 1 | 3 | 2 | 1 | Driver/fleet/Lume flow and isolation tradeoff; platform/S1 claims have no linked source; local trial versus production is explicit; imagined “This is fine” scene accompanies a different named asset. |
-| Browser communication | design comparison | 3 | 1 | 4 | 2 | 1 | Polling/SSE/WebSocket and recovery options are explained; three selection cases make the decision clearer; “90%의 서비스” has no source; novice PR story has no supplied log; invented media dialogue. |
+| cua | library/tool | 3 | 1 | 3 | 2 | 1 | Driver/fleet/Lume flow and isolation tradeoff; platform/S1 claims have no linked source; local trial versus production is explicit; unverified “This is fine” scene accompanies a different named asset. |
+| Browser communication | design comparison | 3 | 1 | 4 | 2 | 1 | Polling/SSE/WebSocket and recovery options are explained; three selection cases make the decision clearer; “90%의 서비스” has no source; novice PR story has no supplied log; unsupported media dialogue. |
 | ponytail | library/tool | 2 | 1 | 2 | 2 | 2 | Persona/flow diagram rather than implementation path; “54%/20%/27%/100%” lacks conditions/source; FastAPI+React trial has no supplied run log; broad praise and generic captions. |
-| OpenID Foundation | protocol/standard | 3 | 2 | 3 | 2 | 1 | Delegation sequence, scopes, DPoP discussion and one whitepaper link; no page citations or implementation status; incomplete-protocol caveat helps; “99%” is unsupported rhetorical quantity; invented admin-key/spreadsheet scenes. |
-| PageIndex | library/tool | 2 | 1 | 3 | 2 | 1 | Tree search diagram and cost/latency tradeoff, but no linked API/code evidence; FAQ versus long-document distinction; SDK trial/migration claims lack logs; illustrative 0.1s/2s is not a benchmark; invented dialogue/road scene. |
+| OpenID Foundation | protocol/standard | 3 | 2 | 3 | 2 | 1 | Delegation sequence, scopes, DPoP discussion and one whitepaper link; no page citations or implementation status; incomplete-protocol caveat helps; “99%” is unsupported rhetorical quantity; unsupported admin-key/spreadsheet scenes. |
+| PageIndex | library/tool | 2 | 1 | 3 | 2 | 1 | Tree search diagram and cost/latency tradeoff, but no linked API/code evidence; FAQ versus long-document distinction; SDK trial/migration claims lack logs; illustrative 0.1s/2s is not a benchmark; unsupported dialogue/road scene. |
+
+Unit 5 subsequently inspected sampled frames of the eight GIFs bundled in this
+automator. Observations, exact sample indices and byte hashes are recorded in
+`assets/memes/catalog.json`. Bundled filenames are not scene evidence: for example,
+`github-star.gif` shows a man with “TEACH ME.” subtitles and `legacy-dumpster.gif`
+shows an office man placing a finger at his lips. All eight are excluded because
+original source and usage permission remain unknown. This inspection does not
+establish that the published blog's copies match the bundled byte hashes; baseline
+scene descriptions therefore remain unsupported/unverified, not proven invented.
 | **Mean (n=8)** | | **2.625** | **1.125** | **2.875** | **2.0** | **1.25** | Small, subjective convenience sample; no significance claim. |
 
 ## Directly observed counts and boundaries

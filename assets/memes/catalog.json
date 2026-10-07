@@ -1,0 +1,110 @@
+{
+  "version": "1.0",
+  "assets": [],
+  "excluded_assets": [
+    {
+      "id": "confused-travolta",
+      "file": "confused-travolta.gif",
+      "observed_scene": "정장을 입은 남성이 옷을 팔에 걸친 채 실내에서 좌우를 보고 한 손을 펼친다. 표본 프레임에 대사 자막은 없다.",
+      "alt": "정장을 입은 남성이 실내에서 주위를 둘러보고 한 손을 펼친다.",
+      "visual_status": "inspected",
+      "inspected_sha256": "cc761fa98e16d348dca0d6bdf07bc73c0aa8ad9aced4df914062a605fcc99015",
+      "source_note": "기존 로컬 파일. 2026-10-07에 102개 중 프레임 0, 14, 29, 43, 58, 72, 87, 101을 확인했다. 원본 URL, 제작자, 라이선스는 확인되지 않음.",
+      "use_note": "사용 허락이 확인되지 않아 선택 대상에서 제외한다. 모든 프레임 또는 음성을 확인한 기록은 아니다.",
+      "usage_status": "unknown",
+      "contexts": ["문서와 구현의 불일치"],
+      "post_kinds": ["tool", "design_comparison"]
+    },
+    {
+      "id": "github-star",
+      "file": "github-star.gif",
+      "observed_scene": "곱슬머리 남성이 실내에서 앞을 본다. 화면 하단에 TEACH ME. 자막이 보인다. GitHub 화면이나 별을 누르는 손가락은 보이지 않는다.",
+      "alt": "실내의 곱슬머리 남성과 TEACH ME. 자막.",
+      "visual_status": "inspected",
+      "inspected_sha256": "144574af369a8612138f2f2afe6bedcfcecac9428ebf5062ef6f2cee12e631cb",
+      "source_note": "기존 로컬 파일. 2026-10-07에 33개 중 프레임 0, 5, 9, 14, 18, 23, 27, 32를 확인했다. 원본 URL, 제작자, 라이선스는 확인되지 않음.",
+      "use_note": "파일명을 장면 근거로 쓰지 않는다. 사용 허락이 확인되지 않아 선택 대상에서 제외한다.",
+      "usage_status": "unknown",
+      "contexts": ["학습 요청"],
+      "post_kinds": ["tool"]
+    },
+    {
+      "id": "hotfix-in-production",
+      "file": "hotfix-in-production.gif",
+      "observed_scene": "안경을 쓴 남성이 모니터 앞에서 키보드를 사용하며 왼쪽 전경에 불꽃이 올라온다. 릴리즈 시각이나 핫픽스 작업은 화면으로 확인되지 않는다.",
+      "alt": "모니터 앞에서 키보드를 사용하는 남성과 왼쪽 전경의 불꽃.",
+      "visual_status": "inspected",
+      "inspected_sha256": "ec929b982fe03c1a956538beaac08ca178e7edc9ecaf769a2fb18d3812687da4",
+      "source_note": "기존 로컬 파일. 2026-10-07에 58개 중 프레임 0, 8, 16, 24, 33, 41, 49, 57을 확인했다. 원본 URL, 제작자, 라이선스는 확인되지 않음.",
+      "use_note": "운영 사고를 실제 경험으로 묘사할 근거가 아니다. 사용 허락이 확인되지 않아 선택 대상에서 제외한다.",
+      "usage_status": "unknown",
+      "contexts": ["장애 대응 압박"],
+      "post_kinds": ["tool", "design_comparison"]
+    },
+    {
+      "id": "legacy-dumpster",
+      "file": "legacy-dumpster.gif",
+      "observed_scene": "사무실에서 안경을 쓴 남성이 검지를 입술에 대었다가 손을 내리고 미소 짓는다. 쓰레기통이나 레거시 코드 화면은 보이지 않는다.",
+      "alt": "사무실에서 남성이 검지를 입술에 대었다가 미소 짓는다.",
+      "visual_status": "inspected",
+      "inspected_sha256": "d31c0f2c7f3387484bf8df1784f41ff6a6e24a1f8a125feb134e3b66ff558192",
+      "source_note": "기존 로컬 파일. 2026-10-07에 70개 중 프레임 0, 10, 20, 30, 39, 49, 59, 69를 확인했다. 원본 URL, 제작자, 라이선스는 확인되지 않음.",
+      "use_note": "파일명을 장면 근거로 쓰지 않는다. 사용 허락이 확인되지 않아 선택 대상에서 제외한다.",
+      "usage_status": "unknown",
+      "contexts": ["조용히 넘어가려는 상황"],
+      "post_kinds": ["tool", "design_comparison"]
+    },
+    {
+      "id": "mind-blown",
+      "file": "mind-blown.gif",
+      "observed_scene": "안경을 쓴 남성이 양손을 머리 근처로 올리고 입을 벌린다. 머리 주위에 빛과 입자 효과가 나타난다.",
+      "alt": "남성이 양손을 머리 근처에 올리고 머리 주위에 빛과 입자 효과가 나타난다.",
+      "visual_status": "inspected",
+      "inspected_sha256": "4c29aca8eb5a811c450dc0bacb785766c001f58c5262fe3a007da587cebfc77f",
+      "source_note": "기존 로컬 파일. 2026-10-07에 53개 중 프레임 0, 7, 15, 22, 30, 37, 45, 52를 확인했다. 원본 URL, 제작자, 라이선스는 확인되지 않음.",
+      "use_note": "놀라는 반응 이상의 작업이나 대사를 붙이지 않는다. 사용 허락이 확인되지 않아 선택 대상에서 제외한다.",
+      "usage_status": "unknown",
+      "contexts": ["예상 밖의 결과"],
+      "post_kinds": ["paper", "tool"]
+    },
+    {
+      "id": "rage-computer-throw",
+      "file": "rage-computer-throw.gif",
+      "observed_scene": "셔츠와 넥타이를 입은 붉은 애니메이션 캐릭터가 이를 드러내고 머리 위로 불꽃이 솟는다. 컴퓨터를 던지는 장면은 표본 프레임에서 보이지 않는다.",
+      "alt": "붉은 애니메이션 캐릭터가 입을 벌리고 머리 위로 불꽃이 솟는다.",
+      "visual_status": "inspected",
+      "inspected_sha256": "275a97d21034d5a2832ea43e2e3aa78d4d40c9e728f7c1e5df9b2a234967e9b4",
+      "source_note": "기존 로컬 파일. 2026-10-07에 24개 중 프레임 0, 3, 7, 10, 13, 16, 20, 23을 확인했다. 원본 URL, 제작자, 라이선스는 확인되지 않음.",
+      "use_note": "파일명만으로 컴퓨터 투척이나 OS 손상을 주장하지 않는다. 사용 허락이 확인되지 않아 선택 대상에서 제외한다.",
+      "usage_status": "unknown",
+      "contexts": ["반복 실패에 대한 답답함"],
+      "post_kinds": ["tool"]
+    },
+    {
+      "id": "this-is-fine",
+      "file": "this-is-fine.gif",
+      "observed_scene": "모자를 쓴 만화 개가 불길과 연기가 있는 방에서 탁자 앞에 앉는다. This is fine. 자막이 보이고 컵을 든다.",
+      "alt": "불타는 방의 탁자 앞에서 만화 개가 컵을 들며 This is fine. 자막이 나온다.",
+      "visual_status": "inspected",
+      "inspected_sha256": "f83a1aa735cc485621383aac46d9543d38c6235d495bab3f14b7e59780bd363d",
+      "source_note": "기존 로컬 파일. 2026-10-07에 33개 중 프레임 0, 5, 9, 14, 18, 23, 27, 32를 확인했다. 원본 URL, 제작자, 라이선스는 확인되지 않음.",
+      "use_note": "자막은 화면에 보이는 문구만 기록한다. 사용 허락이 확인되지 않아 선택 대상에서 제외한다.",
+      "usage_status": "unknown",
+      "contexts": ["장애 신호 무시"],
+      "post_kinds": ["tool", "design_comparison"]
+    },
+    {
+      "id": "works-on-my-machine",
+      "file": "works-on-my-machine.gif",
+      "observed_scene": "기계 장치 옆의 아이가 웃으며 입을 벌린다. It's working, it's working! 자막이 보인다. 개발자의 로컬 환경은 확인되지 않는다.",
+      "alt": "기계 장치 옆에서 웃는 아이와 It's working, it's working! 자막.",
+      "visual_status": "inspected",
+      "inspected_sha256": "039ffe9e8f3da5b1df2bcbaead213840fc132528338e3f8f251dce47e20c2953",
+      "source_note": "기존 로컬 파일. 2026-10-07에 14개 중 프레임 0, 2, 4, 6, 7, 9, 11, 13을 확인했다. 원본 URL, 제작자, 라이선스는 확인되지 않음.",
+      "use_note": "파일명을 개발 환경의 사실로 쓰지 않는다. 사용 허락이 확인되지 않아 선택 대상에서 제외한다.",
+      "usage_status": "unknown",
+      "contexts": ["처음 동작한 결과"],
+      "post_kinds": ["tool"]
+    }
+  ]
+}

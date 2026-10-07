@@ -18,6 +18,7 @@ from src.editorial.models import (
     ValidationIssue, ValidationReport, canonical_topic_url,
 )
 from src.research.extract import extract_sections
+from src.editorial.media import IMAGE, load_catalog, validate_media
 
 
 class _UniqueLoader(yaml.SafeLoader):
@@ -74,7 +75,7 @@ def run_catalog(brief: EditorialBrief, packet: ResearchPacket) -> dict:
     return {f"R{i + 1}": run for i, run in enumerate(runs)}
 
 
-_LINK = re.compile(r"\[([^\]\n]+)\]\(([^)\n]+)\)")
+_LINK = re.compile(r"(?<!!)\[([^\]\n]+)\]\(([^)\n]+)\)")
 _PERSONAL = re.compile(
     r"직접[^.!?\n]{0,35}(?:써|쓰|사용|테스트|실행|측정|배포)|써\s?보니"
     r"|(?:내가|나는|우리(?:가|는)|내\s*(?:프로젝트|서비스|시스템))[^.!?\n]{0,40}(?:썼|써봤|사용했|테스트했|실행했|측정했|배포해|배포했|겪었|도입했|해봤|없앴)"
@@ -230,6 +231,10 @@ def validate_draft(text: DraftText, packet: ResearchPacket, brief: EditorialBrie
             issue("editorial_policy_version_mismatch")
     except (OSError, ValueError):
         issue("editorial_policy_unavailable")
+    try:
+        issues.extend(validate_media(text.content, load_catalog()))
+    except (OSError, ValueError):
+        issue("media_catalog_unavailable")
     if packet.topic_id != brief.topic_id:
         issue("topic_mismatch", grounding=True)
     rebuilt = build_brief(packet, brief.user_context)
@@ -265,7 +270,7 @@ def validate_draft(text: DraftText, packet: ResearchPacket, brief: EditorialBrie
         if sid in seen_sections:
             issue("duplicate_section_id", sid)
         seen_sections.add(sid)
-        remainder = section.text
+        remainder = IMAGE.sub("", section.text)
         # Unresolved placeholders include numeric footnotes without packet IDs.
         bare = _LINK.sub("", section.text)
         if re.search(r"\[(?:MEME_\w+|citation needed|출처[^\]]*|TODO|TBD|\d+)\]", bare, re.I):
