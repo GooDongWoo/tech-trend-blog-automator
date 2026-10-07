@@ -1,87 +1,68 @@
-import datetime
-import re
+"""Idempotent Vault delivery after a confirmed push; never indexes the Vault."""
+from datetime import date
 from pathlib import Path
-from typing import Dict, Any
+import re
+import secrets
 
 from config import settings
 
 
 class ObsidianSync:
-    """Syncs published blog posts back to Obsidian Vault as knowledge notes."""
-
     def __init__(self, vault_path: Path | None = None):
-        self.vault_path = Path(vault_path or settings.obsidian_vault_path)
+        self.vault_path = Path(vault_path or settings.obsidian_vault_path).resolve()
         self.wiki_dir = self.vault_path / "40_Resources" / "42_기술_학습_위키"
-        self.daily_dir = self.vault_path / "10_Daily" / datetime.date.today().strftime("%Y")
+        self.daily_dir = self.vault_path / "10_Daily" / str(date.today().year)
 
-    def _clean_title(self, title: str) -> str:
-        """Remove invalid filename characters."""
-        return re.sub(r'[\\/*?:"<>|]', "", title).strip()
+    def _inside(self, path):
+        if not path.resolve().is_relative_to(self.vault_path):
+            raise ValueError("sync path escaped Vault")
+        return path
 
-    def sync_post(self, draft_info: Dict[str, Any]) -> Dict[str, Any]:
-        """Create a knowledge note in Obsidian and link to today's daily note."""
-        today_str = datetime.date.today().strftime("%Y-%m-%d")
-        title = draft_info.get("title", "기술 트렌드 학습")
-        clean_name = self._clean_title(title)
-        note_filename = f"[학습] {clean_name}.md"
-        note_path = self.wiki_dir / note_filename
+    def _write(self, path, content):
+        path = self._inside(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self._inside(path)
+        temporary = path.with_name(path.name + "." + secrets.token_hex(6) + ".tmp")
+        try:
+            temporary.write_text(content, encoding="utf-8")
+            temporary.replace(path)
+        finally:
+            if temporary.exists():
+                temporary.unlink()
 
-        topic = draft_info.get("topic")
-        url = getattr(topic, "url", "") if topic else ""
-        source = getattr(topic, "source", "") if topic else ""
-        slug = draft_info.get("slug", "")
-        blog_url = f"{settings.blog_base_url.rstrip('/')}/{slug}/"
-
-
-        # 1. Create Knowledge Note
-        note_content = f"""---
-tags: [knowledge, trend, tech]
-type: resource
-created: {today_str}
----
-
-# [학습] {clean_name}
-
-## 1. 개요 및 배경
-- **출처**: [{source}]({url})
-- **블로그 포스트**: [{title}]({blog_url})
-- **학습일**: {today_str}
-
-## 2. 핵심 내용 및 아키텍처
-{getattr(topic, 'one_line_summary', '')}
-
-## 3. 실무 인사이트 및 관점
-{getattr(topic, 'suggested_angle', '')}
-
----
-
-## 🔗 연결된 지식 (Links)
-- 상위 분류: [[40_Resources/42_기술_학습_위키/[학습] 개인공부 대시보드|[학습] 개인공부 대시보드]]
-- 관련 일기: [[10_Daily/{datetime.date.today().strftime('%Y')}/{today_str}|{today_str}]]
-"""
-        self.wiki_dir.mkdir(parents=True, exist_ok=True)
-        note_path.write_text(note_content, encoding="utf-8")
-
-        # 2. Append link to today's daily note if it exists
-        daily_note_path = self.daily_dir / f"{today_str}.md"
-        if daily_note_path.exists():
-            try:
-                daily_content = daily_note_path.read_text(encoding="utf-8")
-                link_line = f"- 신규 기술 학습: [[40_Resources/42_기술_학습_위키/{note_filename[:-3]}|{clean_name}]] (블로그 포스팅 완료)"
-                if link_line not in daily_content:
-                    if "## 🔗 연결된 지식" in daily_content:
-                        daily_content = daily_content.replace(
-                            "## 🔗 연결된 지식",
-                            f"## 🔗 연결된 지식\n{link_line}"
-                        )
-                    else:
-                        daily_content += f"\n\n## 🔗 연결된 지식 (Links)\n{link_line}\n"
-                    daily_note_path.write_text(daily_content, encoding="utf-8")
-            except Exception as e:
-                print(f"[ObsidianSync] Failed to update daily note: {e}")
-
-        return {
-            "success": True,
-            "note_path": str(note_path),
-            "note_title": clean_name
-        }
+    def sync_post(self, info):
+        try:
+            if info.get("push_confirmed") is not True or not re.fullmatch(r"[a-f0-9]{40,64}", info.get("commit_sha", "")):
+                raise ValueError("Vault sync requires a confirmed publication commit")
+            identity = info.get("draft_id", "")
+            if not re.fullmatch(r"[A-Za-z0-9_-]{16}", identity):
+                raise ValueError("sync requires a reviewed draft ID")
+            if not self.vault_path.is_dir():
+                raise ValueError("configured Vault is missing; sync stopped")
+            published_date = date.fromisoformat(info["date"])
+            title = info["title"]
+            clean_title = re.sub(r'[\\/*?:"<>|\[\]\r\n]', "", title).strip()[:100]
+            if not clean_title:
+                raise ValueError("invalid Vault title")
+            filename = f"[학습] {clean_title} - {identity}.md"
+            note_path = self._inside(self.wiki_dir / filename)
+            topic = info.get("topic") or {}
+            blog_url = settings.blog_base_url.rstrip("/") + "/" + info["slug"] + "/"
+            content = (f"---\ntags: [knowledge, trend, tech]\ntype: resource\ncreated: {published_date}\n"
+                       f"draft_id: {identity}\ncommit_sha: {info['commit_sha']}\n---\n\n# {clean_title}\n\n"
+                       f"- 블로그: [{title}]({blog_url})\n- 원문: [{topic.get('source', '')}]({topic.get('url', '')})\n\n"
+                       f"{topic.get('one_line_summary', '')}\n\n{topic.get('suggested_angle', '')}\n")
+            if note_path.exists():
+                if note_path.read_text(encoding="utf-8") != content:
+                    raise ValueError("existing Vault note differs; preserved for review")
+            else:
+                self._write(note_path, content)
+            daily = self._inside(self.vault_path / "10_Daily" / str(published_date.year) / f"{published_date}.md")
+            if daily.exists():
+                existing = daily.read_text(encoding="utf-8")
+                link = f"- 신규 기술 학습: [[40_Resources/42_기술_학습_위키/{filename[:-3]}|{clean_title}]] (블로그 포스팅 완료)"
+                if link not in existing:
+                    self._write(daily, existing + "\n\n" + link + "\n")
+            return {"success": True, "note_path": str(note_path), "note_title": clean_title}
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            return {"success": False, "error": str(error)}

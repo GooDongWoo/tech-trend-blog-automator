@@ -24,6 +24,8 @@ from src.collector.orchestrator import TrendOrchestrator
 from src.curator.matcher import TrendMatcher, CuratedTopic
 from src.editorial.pipeline import EditorialPipeline, approval_callback, decode_callback
 from src.editorial.models import DraftStatus
+from src.publisher.git_publisher import GitPublisher
+from src.publisher.obsidian_sync import ObsidianSync
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -32,11 +34,13 @@ logger = logging.getLogger(__name__)
 class TrendBotApp:
     """Telegram Bot application managing daily briefings, user selection, and blog publishing."""
 
-    def __init__(self, *, pipeline: EditorialPipeline | None = None):
+    def __init__(self, *, pipeline: EditorialPipeline | None = None, publisher=None, sync=None):
         self.profiler = InterestProfiler()
         self.collector = TrendOrchestrator()
         self.matcher = TrendMatcher()
         self.pipeline = pipeline or EditorialPipeline()
+        self.publisher = publisher or GitPublisher()
+        self.sync = sync or ObsidianSync()
         self.scheduler = AsyncIOScheduler()
 
         # Cache of current curated topics
@@ -186,8 +190,31 @@ class TrendBotApp:
             elif data.startswith("a:"):
                 draft_id, expected_hash = decode_callback(data)
                 self.pipeline.check_reviewer(draft_id, chat, user)
-                artifact = self.pipeline.approve(draft_id, expected_hash)
-                await query.edit_message_text(f"검토 승인 기록: {artifact.id}\n상태: {artifact.status.value}")
+                artifact = self.pipeline.get_draft(draft_id)
+                if artifact.status == DraftStatus.REVIEW_READY:
+                    artifact = self.pipeline.approve(draft_id, expected_hash)
+                elif artifact.status not in {DraftStatus.APPROVED, DraftStatus.PUBLISHED} or artifact.content_sha256 != expected_hash:
+                    raise ValueError("invalid approval state/hash")
+                callback = "p:" + approval_callback(artifact)[2:]
+                await query.edit_message_text(f"검토 승인 기록: {artifact.id}\n상태: {artifact.status.value}\n아래 버튼은 승인한 초안을 Git 발행하고 push 성공 후 Vault에 동기화합니다.",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("승인한 초안 발행 / 동기화 재시도", callback_data=callback)]]))
+            elif data.startswith(("p:", "c:")):
+                draft_id, expected_hash = decode_callback("a:" + data[2:])
+                self.pipeline.check_reviewer(draft_id, chat, user)
+                result = await asyncio.to_thread(self.publisher.publish, self.pipeline.store, draft_id, expected_hash,
+                                                 sync=self.sync, reconcile=data.startswith("c:"))
+                if result["success"]:
+                    text = f"발행 상태: PUBLISHED\nCommit: {result['commit_sha']}\nVault: {result['sync_status']}"
+                    if result.get("sync_error"):
+                        text += "\n" + result["sync_error"]
+                    if result.get("local_state_error"):
+                        text += "\n로컬 상태 기록 실패: " + result["local_state_error"]
+                else:
+                    text = f"발행 차단: {result['status']}\n{result['error']}"
+                prefix = "c:" if result["status"] == "PUSH_UNCERTAIN" else "p:"
+                label = "원격 SHA로 발행 여부 확인" if prefix == "c:" else "발행 / 동기화 재시도"
+                rows = [] if result.get("sync_status") == "SYNCED" else [[InlineKeyboardButton(label, callback_data=prefix + data[2:])]]
+                await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(rows))
             else:
                 raise ValueError("invalid or obsolete callback; open a current review")
         except (ValueError, OSError, AttributeError) as error:
