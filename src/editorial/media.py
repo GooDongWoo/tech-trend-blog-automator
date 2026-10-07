@@ -15,6 +15,7 @@ from src.editorial.models import Contract, DraftSection, DraftText, EditorialBri
 
 CATALOG_PATH = Path(__file__).resolve().parents[2] / "assets" / "memes" / "catalog.json"
 IMAGE = re.compile(r"!\[([^\]\n]*)\]\(([^)\n]+)\)")
+MEDIA_INPUT = re.compile(r"!\[|<img\b|<picture\b|<video\b|<iframe\b", re.I)
 _MEDIA_PROSE = re.compile(r"(?:짤|밈|GIF)\s*(?:설명|속|에서는|에서)|이\s*(?:짤|밈|GIF)\b", re.I)
 
 
@@ -159,10 +160,15 @@ def validate_media(content: str, catalog: MemeCatalog) -> tuple[ValidationIssue,
         issue("unsupported_media_syntax")
     if _MEDIA_PROSE.search(without_images):
         issue("unsupported_media_prose")
-    for paragraph in re.split(r"\r?\n\s*\r?\n", content):
+    paragraphs = re.split(r"\r?\n\s*\r?\n", content)
+    for index, paragraph in enumerate(paragraphs):
         matches = list(IMAGE.finditer(paragraph))
         if matches and paragraph.strip() != matches[0].group():
             issue("unsupported_media_caption")
+        if matches and index + 1 < len(paragraphs):
+            following = paragraphs[index + 1].strip()
+            if re.match(r"(?:>|[*_]{1,2}(?!\s)|[\"'“‘]|<figcaption\b)", following, re.I):
+                issue("unsupported_media_caption")
     by_url = {item.url: item for item in catalog.assets}
     for match in images:
         alt, url = match.groups()
@@ -183,6 +189,13 @@ def validate_media(content: str, catalog: MemeCatalog) -> tuple[ValidationIssue,
 def apply_media(brief: EditorialBrief, draft: DraftText, catalog: MemeCatalog) -> tuple[DraftText, MediaChoice | None]:
     """Attach a verified image locally; Unit 6 owns asset persistence."""
     issues = validate_media(draft.content, catalog)
+    # This boundary accepts prose before selection, not model-selected media.
+    # Registered paths and factual alt alone do not establish relevance or a
+    # MediaChoice that Unit 6 can persist and bind to approval.
+    if MEDIA_INPUT.search(draft.content) and not any(
+        issue.code == "model_supplied_media" for issue in (draft.report.issues if draft.report else ())
+    ):
+        issues = (*issues, ValidationIssue(code="model_supplied_media"))
     if issues:
         prior = draft.report
         report = ValidationReport(status="NEEDS_REVISION", issues=(*(prior.issues if prior else ()), *issues),

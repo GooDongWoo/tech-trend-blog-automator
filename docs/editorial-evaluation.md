@@ -47,6 +47,7 @@ Keys below identify exact paths and frozen hashes in the manifest.
 | ponytail | library/tool | 2 | 1 | 2 | 2 | 2 | Persona/flow diagram rather than implementation path; “54%/20%/27%/100%” lacks conditions/source; FastAPI+React trial has no supplied run log; broad praise and generic captions. |
 | OpenID Foundation | protocol/standard | 3 | 2 | 3 | 2 | 1 | Delegation sequence, scopes, DPoP discussion and one whitepaper link; no page citations or implementation status; incomplete-protocol caveat helps; “99%” is unsupported rhetorical quantity; unsupported admin-key/spreadsheet scenes. |
 | PageIndex | library/tool | 2 | 1 | 3 | 2 | 1 | Tree search diagram and cost/latency tradeoff, but no linked API/code evidence; FAQ versus long-document distinction; SDK trial/migration claims lack logs; illustrative 0.1s/2s is not a benchmark; unsupported dialogue/road scene. |
+| **Mean (n=8)** | | **2.625** | **1.125** | **2.875** | **2.0** | **1.25** | Small, subjective convenience sample; no significance claim. |
 
 Unit 5 subsequently inspected sampled frames of the eight GIFs bundled in this
 automator. Observations, exact sample indices and byte hashes are recorded in
@@ -56,7 +57,6 @@ shows an office man placing a finger at his lips. All eight are excluded because
 original source and usage permission remain unknown. This inspection does not
 establish that the published blog's copies match the bundled byte hashes; baseline
 scene descriptions therefore remain unsupported/unverified, not proven invented.
-| **Mean (n=8)** | | **2.625** | **1.125** | **2.875** | **2.0** | **1.25** | Small, subjective convenience sample; no significance claim. |
 
 ## Directly observed counts and boundaries
 

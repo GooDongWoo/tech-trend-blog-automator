@@ -110,3 +110,48 @@ records; no production changes followed the final gates.
 - Published blog asset copies were not byte-compared to this repository's GIFs;
   baseline descriptions remain unsupported/unverified. This unit supplies no
   blinded editorial scores, production cutover or full publish-flow verification.
+
+## Unit 5 review fixes — caption spacing and model media provenance
+
+Verified both Important review findings against the implementation and reproduced
+them with real offline code paths before changing production code.
+
+- The original caption check saw only the image's own paragraph. It accepted a
+  separate italic scene caption or blockquoted invented dialogue after blank lines.
+  Validation now checks the following paragraph for caption/quote forms, including
+  multiple blank lines and CRLF. An ordinary separate argument paragraph remains
+  valid; this is a conservative caption check, not semantic scene verification.
+- A fake model could emit an approved, registered canonical GIF. The static asset
+  check accepted it, selection skipped it, and the pipeline returned REVIEW_READY
+  without a MediaChoice despite unrelated context/post kind. `write_draft` now
+  rejects model-supplied media in both initial generation and section revisions
+  before validation/selection. `apply_media` also rejects preexisting media at its
+  prose-input boundary, so callers cannot skip that guard. The retained packet and
+  text stay visible with `model_supplied_media` and NEEDS_REVISION.
+- Added actual `write_draft` → `apply_media` tests with fake model output for
+  unrelated context, unrelated post kind, and even a relevant registered asset;
+  all are blocked because the model cannot perform the selection. A section-only
+  revision injecting a registered GIF is also blocked. Existing post-validation
+  positive selection remains green and returns its explicit MediaChoice.
+- Corrected the Minor Markdown defect by restoring the baseline mean row directly
+  after the eight post rows, without a blank line or explanatory prose splitting
+  the table. Inspected the saved contiguous rows.
+
+```text
+# RED before review-fix production changes
+.\.venv\Scripts\python.exe -m pytest tests/test_media.py -q --tb=short
+9 failed, 38 passed in 0.83s
+
+# Final GREEN after all review-fix source/test changes
+.\.venv\Scripts\python.exe -m pytest tests/test_media.py -q --tb=short
+47 passed in 0.69s
+.\.venv\Scripts\python.exe -m pytest -q --tb=short
+259 passed in 11.04s
+git diff --check
+no whitespace errors
+```
+
+Self-reviewed the complete review-fix diff. The final documentation/table/report
+edits did not change production code after the passing test gates. Existing unknown
+rights, sampled-frame inspection and Unit 6 persistence/approval boundaries still
+apply. No live API, push, publication, real blog/Vault write or indexing occurred.

@@ -112,6 +112,10 @@ def test_missing_local_asset_is_not_selected_or_rendered(catalog):
     ("\n이 GIF 속 인물이 '배포 성공'이라고 말한다.", "unsupported_media_prose"),
     ("\n*개발자가 컴퓨터를 던진다.*", "unsupported_media_caption"),
     ("\n> '배포 성공!'", "unsupported_media_caption"),
+    ("\n\n*Developer throws computer.*", "unsupported_media_caption"),
+    ('\n\n> "Release succeeded!"', "unsupported_media_caption"),
+    ("\n\n\n*Developer throws computer.*", "unsupported_media_caption"),
+    ('\r\n\r\n> "Release succeeded!"', "unsupported_media_caption"),
 ])
 def test_duplicate_caption_and_scene_or_quote_explanations_block(catalog, suffix, code):
     content = "![단색 픽셀](/assets/images/memes/pixel.gif)" + suffix
@@ -210,6 +214,62 @@ def test_draft_validation_cannot_certify_an_unverified_model_image(drafting_inpu
     report = validate_draft(text, packet, editorial_brief)
     assert report.status == "NEEDS_REVISION"
     assert any(issue.code == "unregistered_media" for issue in report.issues)
+
+
+@pytest.mark.parametrize("item_update", [
+    {"contexts": ("unrelated protocol scopes",)},
+    {"contexts": ("durable storage",), "post_kinds": ("protocol",)},
+    {"contexts": ("durable storage",)},
+])
+def test_model_supplied_registered_gif_is_blocked_before_selection(drafting_input, catalog, monkeypatch, item_update):
+    from src.editorial.draft import write_draft
+    packet, editorial_brief = drafting_input
+    item = catalog.assets[0].model_copy(update=item_update)
+    catalog = catalog.model_copy(update={"assets": (item,)})
+    monkeypatch.setattr("src.editorial.validate.load_catalog", lambda: catalog)
+    payload = response()
+    payload["sections"].append({"id": "model_image", "text": "![단색 픽셀](/assets/images/memes/pixel.gif)", "claims": []})
+    class LocalLLM:
+        def generate(self, prompt):
+            return json.dumps(payload, ensure_ascii=False)
+    generated = write_draft(editorial_brief, packet, LocalLLM())
+    result, choice = api().apply_media(editorial_brief, generated, catalog)
+    assert generated.report.status == "NEEDS_REVISION"
+    assert result.report.status == "NEEDS_REVISION"
+    assert "model_supplied_media" in {issue.code for issue in result.report.issues}
+    assert choice is None
+    assert result.packet == packet
+
+
+def test_preexisting_registered_gif_cannot_bypass_apply_media(catalog):
+    text = draft("fixture debugging\n\n![단색 픽셀](/assets/images/memes/pixel.gif)")
+    result, choice = api().apply_media(brief(), text, catalog)
+    assert result.report.status == "NEEDS_REVISION"
+    assert "model_supplied_media" in {issue.code for issue in result.report.issues}
+    assert choice is None
+
+
+def test_revision_cannot_inject_a_registered_gif(drafting_input, catalog, monkeypatch):
+    from src.editorial.draft import write_draft
+    packet, editorial_brief = drafting_input
+    monkeypatch.setattr("src.editorial.validate.load_catalog", lambda: catalog)
+    bad = response()
+    bad["sections"][0]["text"] = "직접 써보니 빨랐다."
+    bad["sections"][0]["claims"] = []
+    replacement = response()["sections"][0]
+    replacement["text"] += "\n\n![단색 픽셀](/assets/images/memes/pixel.gif)"
+    replies = iter((bad, {"sections": [replacement]}))
+    class LocalLLM:
+        def generate(self, prompt):
+            return json.dumps(next(replies), ensure_ascii=False)
+    result = write_draft(editorial_brief, packet, LocalLLM())
+    assert result.report.status == "NEEDS_REVISION"
+    assert "model_supplied_media" in {issue.code for issue in result.report.issues}
+
+
+def test_separate_ordinary_argument_paragraph_is_not_a_media_caption(catalog):
+    content = "![단색 픽셀](/assets/images/memes/pixel.gif)\n\n어떤 조건에서 선택할까?"
+    assert api().validate_media(content, catalog) == ()
 
 
 def test_writer_selects_after_validated_prose_without_blog_write(drafting_input, catalog, tmp_path):

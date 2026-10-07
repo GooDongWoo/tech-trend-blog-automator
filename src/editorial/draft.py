@@ -8,6 +8,7 @@ from src.editorial.models import (
     ResearchBlocked, ValidationIssue, ValidationReport,
 )
 from src.editorial.validate import evidence_catalog, run_catalog, validate_draft
+from src.editorial.media import MEDIA_INPUT
 
 
 class LLMClient(Protocol):
@@ -82,6 +83,8 @@ def write_draft(brief: EditorialBrief, packet: ResearchPacket, llm: LLMClient) -
         # Retain the packet and a safe error class, never credentials or provider
         # response prose that may contain request headers or secret values.
         return _blocked(draft, "draft_generation_failed", detail=type(error).__name__)
+    if MEDIA_INPUT.search(draft.content):
+        return _blocked(draft, "model_supplied_media")
     draft = draft.model_copy(update={"report": validate_draft(draft, packet, brief)})
     for attempt in range(1, 3):
         if draft.report.status == "REVIEW_READY":
@@ -109,6 +112,8 @@ def write_draft(brief: EditorialBrief, packet: ResearchPacket, llm: LLMClient) -
             replacements = {section.id: section for section in repair.sections}
             draft = draft.model_copy(update={"sections": tuple(replacements.get(section.id, section) for section in draft.sections),
                 "frontmatter": repair.frontmatter if repair.frontmatter is not None else draft.frontmatter})
+            if MEDIA_INPUT.search(draft.content):
+                return _blocked(draft, "model_supplied_media")
             draft = draft.model_copy(update={"report": validate_draft(draft, packet, brief)})
         except Exception as error:
             return _blocked(draft, "draft_revision_failed", detail=type(error).__name__)
