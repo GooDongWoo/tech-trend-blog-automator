@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     # Telegram
     telegram_bot_token: str = Field(default="", alias="TELEGRAM_BOT_TOKEN")
     telegram_chat_id: str = Field(default="", alias="TELEGRAM_CHAT_ID")
+    telegram_reviewer_user_id: str = Field(default="", alias="TELEGRAM_REVIEWER_USER_ID")
     schedule_time: str = Field(default="08:30", alias="SCHEDULE_TIME")
 
     # LLM

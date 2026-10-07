@@ -12,9 +12,8 @@ if sys.platform == "win32":
     except Exception:
         pass
 
-from config import settings
 from src.curator.matcher import CuratedTopic
-from src.writer.blog_writer import BlogWriter
+from src.editorial.pipeline import EditorialPipeline
 
 topics = [
     CuratedTopic(
@@ -55,22 +54,16 @@ topics = [
     )
 ]
 
-async def main():
-    writer = BlogWriter()
-    generated_drafts = []
-    for topic in topics:
-        print("\n" + "=" * 70)
-        print(f"🚀 [Rank {topic.rank}] 블로그 글 작성 시작: {topic.title}")
-        print("=" * 70)
-        draft = await writer.generate_post(topic)
-        generated_drafts.append(draft)
-        print(f"✅ 완성된 제목: {draft['title']}")
-        print(f"📁 저장된 파일: {draft['file_path']}")
-        print(f"📄 미리보기 (처음 350자):\n{draft['content'][:350]}...\n")
-
-    print("\n" + "=" * 70)
-    print(f"✨ 2, 3, 4, 5번 총 {len(generated_drafts)}개 블로그 포스트 작성 완료!")
-    print("=" * 70)
+async def main(*, output_root=None, writer=None, selected_topics=None):
+    pipeline = EditorialPipeline(output_root, writer=writer)
+    artifacts = []
+    for topic in topics if selected_topics is None else selected_topics:
+        artifact = await pipeline.generate(pipeline.register_topic(topic))
+        artifacts.append(artifact)
+        print(f"{artifact.status.value}: {topic.title}")
+        print(f"Full draft: {artifact.content_path}")
+        print(f"Review report: {artifact.content_path.parent / 'review.md'}")
+    return artifacts
 
 if __name__ == "__main__":
     asyncio.run(main())

@@ -1,6 +1,7 @@
 import asyncio
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Optional
+import json
 from datetime import datetime
 
 from telegram import (
@@ -21,9 +22,8 @@ from config import settings
 from src.profiler.interest_profiler import InterestProfiler
 from src.collector.orchestrator import TrendOrchestrator
 from src.curator.matcher import TrendMatcher, CuratedTopic
-from src.writer.blog_writer import BlogWriter
-from src.publisher.git_publisher import GitPublisher
-from src.publisher.obsidian_sync import ObsidianSync
+from src.editorial.pipeline import EditorialPipeline, approval_callback, decode_callback
+from src.editorial.models import DraftStatus
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -32,19 +32,15 @@ logger = logging.getLogger(__name__)
 class TrendBotApp:
     """Telegram Bot application managing daily briefings, user selection, and blog publishing."""
 
-    def __init__(self):
+    def __init__(self, *, pipeline: EditorialPipeline | None = None):
         self.profiler = InterestProfiler()
         self.collector = TrendOrchestrator()
         self.matcher = TrendMatcher()
-        self.writer = BlogWriter()
-        self.publisher = GitPublisher()
-        self.obsidian_sync = ObsidianSync()
+        self.pipeline = pipeline or EditorialPipeline()
         self.scheduler = AsyncIOScheduler()
 
         # Cache of current curated topics
         self.current_topics: Dict[int, CuratedTopic] = {}
-        # Cache of last drafted post
-        self.last_draft: Optional[Dict[str, Any]] = None
 
     async def start_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /start command."""
@@ -122,102 +118,74 @@ class TrendBotApp:
         await update.message.reply_text("🔍 최근 Obsidian 관심사를 분석하고 최신 트렌드를 수집하고 있습니다. 잠시만 기다려주세요...")
         await self.trigger_briefing(chat_id=str(update.effective_chat.id), context=context)
 
+    def reviewer_identity(self):
+        chat = str(settings.telegram_chat_id)
+        # Private chat IDs are user IDs. Groups need an explicit reviewer user.
+        user = str(settings.telegram_reviewer_user_id or (chat if chat.isdigit() else ""))
+        if not chat or not user:
+            raise ValueError("Telegram reviewer chat/user is not configured")
+        return chat, user
+
+    async def send_review(self, bot, chat_id, artifact):
+        chat, user = self.reviewer_identity()
+        if str(chat_id) != chat:
+            raise ValueError("unauthorized review chat")
+        directory = artifact.content_path.parent
+        # Full files are delivered before any approval button is offered.
+        for path in (artifact.content_path, directory / "review.md", *artifact.media_paths):
+            with path.open("rb") as document:
+                await bot.send_document(chat_id=chat_id, document=document, filename=path.name)
+        self.pipeline.bind_reviewer(artifact.id, chat, user)
+        packet = json.loads(artifact.evidence_path.read_text(encoding="utf-8"))
+        sources = (packet or {}).get("sources", [])
+        report = json.loads(artifact.report_path.read_text(encoding="utf-8"))
+        issues = report.get("reasons", [])
+        warnings = report.get("warnings", [])
+        rows = [[InlineKeyboardButton(source["title"][:80], url=source["url"])]
+                for source in sources if source["url"].startswith(("https://", "http://"))]
+        if artifact.status == DraftStatus.REVIEW_READY:
+            rows.append([InlineKeyboardButton("전체 검토 후 승인", callback_data=approval_callback(artifact))])
+        rows.append([InlineKeyboardButton("새 수정본 생성", callback_data=f"r:{artifact.id}")])
+        text = (f"초안 상태: {artifact.status.value}\nID: {artifact.id}\n"
+                f"전체 초안: {artifact.content_path}\n근거·검증 보고서: {directory / 'review.md'}\n"
+                f"SHA-256: {artifact.content_sha256}\n원문: {len(sources)}개\n"
+                f"미해결 사항: {', '.join(issues)[:800] or '없음'}\n"
+                f"검토 참고: {', '.join(warnings)[:500] or '없음'}\n"
+                "첨부한 전체 본문과 근거 보고서를 확인하세요. 승인은 이 초안에만 기록됩니다.")
+        await bot.send_message(chat_id=chat_id, text=text, reply_markup=InlineKeyboardMarkup(rows),
+                               disable_web_page_preview=True)
+
     async def handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle inline button clicks."""
         query = update.callback_query
         await query.answer()
-
-        data = query.data
-        if data == "refresh_topics":
-            await query.edit_message_text("🔄 트렌드를 다시 수집하고 큐레이션합니다...")
-            await self.trigger_briefing(chat_id=str(query.message.chat_id), context=context)
-            return
-
-        if data.startswith("select_"):
-            rank = int(data.replace("select_", ""))
-            topic = self.current_topics.get(rank)
-            if not topic:
-                await query.edit_message_text("❌ 선택한 주제 정보를 찾을 수 없습니다. 다시 시도해주세요.")
-                return
-
-            await query.edit_message_text(
-                f"✅ **[{topic.rank}번 채택]** {topic.title}\n\n"
-                f"🔍 공식 문서 및 관련 자료 심층 리서치에 착수합니다...\n"
-                f"✍️ 동우님 스타일의 유쾌한 평어체 블로그 초안을 작성 중입니다. (약 30~60초 소요)",
-                parse_mode=ParseMode.MARKDOWN
-            )
-
-            # Asynchronously write blog post
-            draft_result = await self.writer.generate_post(topic)
-            # Unit 4 results are local review artifacts. Unit 6 must bind a
-            # full review/approval before enabling publication for this format.
-            if draft_result.get("publishable") is False or draft_result.get("status") in {"NEEDS_RESEARCH", "NEEDS_REVISION", "REVIEW_READY"}:
-                self.last_draft = None
-                status = draft_result.get("status", "NEEDS_REVISION")
-                reasons = ", ".join(draft_result.get("reasons", []))
-                path = draft_result.get("file_path", "")
-                await context.bot.send_message(chat_id=query.message.chat_id,
-                    text=f"초안 상태: {status}\n{reasons}\n로컬 검토 파일: {path}\n전체 초안과 근거 보고서 검토가 필요합니다.")
-                return
-            self.last_draft = draft_result
-
-            # Send preview and approval buttons
-            preview_msg = (
-                f"🎉 **블로그 글 초안이 완성되었습니다!**\n\n"
-                f"📄 **제목**: {draft_result['title']}\n"
-                f"📁 **저장 위치**: `{draft_result['relative_path']}`\n\n"
-                f"**[본문 미리보기 (일부)]**\n"
-                f"```markdown\n{draft_result['content'][:500]}...\n```\n\n"
-                f"배포 승인을 누르면 GitHub Pages(`GooDongWoo.github.io`)에 자동 푸시되고, "
-                f"Obsidian 볼트에도 지식 노트가 생성 및 연결됩니다."
-            )
-            approval_keyboard = [
-                [
-                    InlineKeyboardButton("🚀 배포 승인 (Push)", callback_data="approve_push"),
-                    InlineKeyboardButton("🔄 재작성 (Retry)", callback_data=f"select_{rank}"),
-                ],
-                [InlineKeyboardButton("❌ 취소", callback_data="cancel_draft")]
-            ]
-            await context.bot.send_message(
-                chat_id=query.message.chat_id,
-                text=preview_msg,
-                reply_markup=InlineKeyboardMarkup(approval_keyboard),
-                parse_mode=ParseMode.MARKDOWN
-            )
-            return
-
-        if data == "approve_push":
-            if not self.last_draft:
-                await query.edit_message_text("❌ 배포할 초안 정보를 찾을 수 없습니다.")
-                return
-
-            if self.last_draft.get("publishable") is False or self.last_draft.get("status") in {"NEEDS_RESEARCH", "NEEDS_REVISION", "REVIEW_READY"}:
-                await query.edit_message_text("로컬 검토 초안은 특정 초안의 전체 검토와 승인이 필요합니다.")
-                return
-
-            await query.edit_message_text("🚀 GitHub Pages에 푸시하고 Obsidian 볼트와 동기화 중입니다...")
-
-            # 1. Git Commit & Push
-            push_res = self.publisher.publish(self.last_draft["file_path"], self.last_draft["title"])
-
-            # 2. Obsidian Sync
-            obs_res = self.obsidian_sync.sync_post(self.last_draft)
-
-            live_url = f"{settings.blog_base_url.rstrip('/')}/{self.last_draft['slug']}/"
-            await context.bot.send_message(
-                chat_id=query.message.chat_id,
-                text=(
-                    f"✨ **성공적으로 배포 및 동기화되었습니다!** ✨\n\n"
-                    f"🌐 **블로그 주소**: {live_url}\n"
-                    f"📝 **Git 결과**: {push_res.get('message')}\n"
-                    f"📓 **Obsidian 노트**: `{obs_res.get('note_path')}` (일기 위키링크 연결 완료!)\n"
-                ),
-                parse_mode=ParseMode.MARKDOWN
-            )
-            return
-
-        if data == "cancel_draft":
-            await query.edit_message_text("🚫 배포가 취소되었습니다. 작성된 초안 파일은 로컬에 보존됩니다.")
+        try:
+            chat, user = self.reviewer_identity()
+            if str(query.message.chat_id) != chat or str(getattr(query.from_user, "id", "")) != user:
+                raise ValueError("unauthorized reviewer")
+            data = query.data or ""
+            if data == "refresh_topics":
+                await self.trigger_briefing(chat_id=chat, context=context)
+            elif data.startswith("select_"):
+                topic = self.current_topics.get(int(data.removeprefix("select_")))
+                if topic is None:
+                    raise ValueError("topic expired; refresh the briefing")
+                await query.edit_message_text("원문과 근거를 확인해 로컬 검토 초안을 생성합니다.")
+                artifact = await self.pipeline.generate(self.pipeline.register_topic(topic))
+                await self.send_review(context.bot, query.message.chat_id, artifact)
+            elif data.startswith("r:"):
+                draft_id = data.removeprefix("r:")
+                self.pipeline.check_reviewer(draft_id, chat, user)
+                artifact = await self.pipeline.retry(draft_id)
+                await self.send_review(context.bot, query.message.chat_id, artifact)
+            elif data.startswith("a:"):
+                draft_id, expected_hash = decode_callback(data)
+                self.pipeline.check_reviewer(draft_id, chat, user)
+                artifact = self.pipeline.approve(draft_id, expected_hash)
+                await query.edit_message_text(f"검토 승인 기록: {artifact.id}\n상태: {artifact.status.value}")
+            else:
+                raise ValueError("invalid or obsolete callback; open a current review")
+        except (ValueError, OSError, AttributeError) as error:
+            await query.edit_message_text(f"처리 차단: {error}")
 
     def run(self):
         """Start the Telegram bot and background scheduler."""

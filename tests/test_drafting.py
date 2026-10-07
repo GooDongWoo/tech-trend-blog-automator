@@ -142,42 +142,7 @@ def test_writer_outage_retains_packet_and_never_creates_blog(drafting_input, tmp
     assert Path(result["evidence_path"]).exists()
 
 
-def _telegram_app(draft):
-    from types import SimpleNamespace
-    from unittest.mock import Mock
-    from src.bot.telegram_bot import TrendBotApp
-    from src.curator.matcher import CuratedTopic
-    app = TrendBotApp.__new__(TrendBotApp)
-    app.current_topics = {1: CuratedTopic(rank=1, title="PageIndex", url="https://example.invalid/source",
-        source="fixture", one_line_summary="queue", relevance_reason="test", suggested_angle="When should it be adopted?")}
-    app.last_draft = None
-    app.writer = SimpleNamespace(generate_post=AsyncMock(return_value=draft))
-    app.publisher = SimpleNamespace(publish=Mock())
-    app.obsidian_sync = SimpleNamespace(sync_post=Mock())
-    query = SimpleNamespace(data="select_1", answer=AsyncMock(), edit_message_text=AsyncMock(), message=SimpleNamespace(chat_id=1))
-    context = SimpleNamespace(bot=SimpleNamespace(send_message=AsyncMock()))
-    return app, SimpleNamespace(callback_query=query), context
-
-
-@pytest.mark.parametrize("status", ["NEEDS_RESEARCH", "NEEDS_REVISION", "REVIEW_READY"])
-def test_telegram_does_not_offer_publish_for_review_only_results(status):
-    draft = {"status": status, "publishable": False, "reasons": ["fixture_reason"], "file_path": "local-draft.md"}
-    app, update, context = _telegram_app(draft)
-    asyncio.run(app.handle_callback(update, context))
-    assert app.last_draft is None
-    assert "reply_markup" not in context.bot.send_message.call_args.kwargs
-    assert status in context.bot.send_message.call_args.kwargs["text"]
-    app.publisher.publish.assert_not_called()
-    app.obsidian_sync.sync_post.assert_not_called()
-
-
-def test_telegram_rejects_stale_review_only_approval_callback():
-    app, update, context = _telegram_app({})
-    app.last_draft = {"status": "REVIEW_READY", "publishable": False, "file_path": "local.md", "title": "review"}
-    update.callback_query.data = "approve_push"
-    asyncio.run(app.handle_callback(update, context))
-    app.publisher.publish.assert_not_called()
-    app.obsidian_sync.sync_post.assert_not_called()
+# Telegram lifecycle acceptance moved to test_pipeline.py in Unit 6.
 
 
 def test_invalid_research_packet_blocks_before_model_call(drafting_input):

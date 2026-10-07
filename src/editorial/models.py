@@ -267,6 +267,7 @@ class DraftArtifact(Contract):
     status: DraftStatus = DraftStatus.NEEDS_RESEARCH
     media_paths: tuple[Path, ...] = ()
     approved_sha256: Sha256 | None = None
+    review_sha256: Sha256 | None = None
 
     def model_copy(self, *, update=None, deep=False):
         copied = super().model_copy(update=update, deep=deep)

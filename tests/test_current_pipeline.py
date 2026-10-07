@@ -8,8 +8,7 @@ import json
 import socket
 import subprocess
 from pathlib import Path
-from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -118,37 +117,5 @@ def test_writer_never_inserts_random_memes_into_failed_draft(topic, drafting_inp
     assert not (tmp_path / "blog" / "assets").exists()
 
 
-@pytest.mark.current_behavior(owner="Unit 6: approval/publish")
-def test_current_publish_attempt_allowed_after_500_character_preview(topic, tmp_path):
-    from src.bot.telegram_bot import TrendBotApp
-
-    # Skip constructors that instantiate real integrations; exercise the real handler.
-    app = TrendBotApp.__new__(TrendBotApp)
-    content = "VISIBLE-" + "x" * 700 + "UNREVIEWED-TAIL"
-    path = tmp_path / "blog" / "_posts" / "draft.md"
-    path.parent.mkdir(parents=True)
-    path.write_text(content, encoding="utf-8")
-    draft = {"title": "Fixture draft", "relative_path": "_posts/draft.md",
-             "content": content, "file_path": str(path), "slug": "fixture"}
-    app.current_topics = {1: topic}
-    app.last_draft = None
-    app.writer = SimpleNamespace(generate_post=AsyncMock(return_value=draft))
-    app.publisher = SimpleNamespace(publish=Mock(return_value={"success": False, "message": "fake failure"}))
-    app.obsidian_sync = SimpleNamespace(sync_post=Mock(return_value={"note_path": "fake-note"}))
-    query = SimpleNamespace(data="select_1", answer=AsyncMock(), edit_message_text=AsyncMock(),
-                            message=SimpleNamespace(chat_id=1))
-    context = SimpleNamespace(bot=SimpleNamespace(send_message=AsyncMock()))
-    update = SimpleNamespace(callback_query=query)
-    asyncio.run(app.handle_callback(update, context))
-    preview = context.bot.send_message.call_args.kwargs
-    assert f"{content[:500]}..." in preview["text"]
-    assert "UNREVIEWED-TAIL" not in preview["text"]
-    buttons = preview["reply_markup"].inline_keyboard
-    assert buttons[0][0].callback_data == "approve_push"
-    app.publisher.publish.assert_not_called()
-    query.data = "approve_push"
-    asyncio.run(app.handle_callback(update, context))
-    app.publisher.publish.assert_called_once_with(str(path), "Fixture draft")
-    # Also freeze the adjacent failure: sync and success message follow a failed push.
-    app.obsidian_sync.sync_post.assert_called_once_with(draft)
-    assert "성공적으로 배포" in context.bot.send_message.call_args.kwargs["text"]
+# Unit 6 replaces the unsafe 500-character-preview characterization with
+# durable full-review and authorized callback acceptance tests in test_pipeline.py.

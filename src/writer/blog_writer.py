@@ -41,7 +41,7 @@ class BlogWriter:
     def generate(self, prompt: str) -> str:
         return self._call_llm(prompt)
 
-    async def generate_post(self, topic: CuratedTopic, *, user_context: UserContext | None = None) -> dict[str, Any]:
+    async def generate_post(self, topic: CuratedTopic, *, user_context: UserContext | None = None, persist_artifacts: bool = True) -> dict[str, Any]:
         research = await self.researcher.research(topic)
         packet = research.get("packet")
         if research.get("status") == "NEEDS_RESEARCH":
@@ -63,6 +63,8 @@ class BlogWriter:
         result = {"status": draft.report.status, "publishable": False, "topic": topic, "packet": packet,
             "brief": brief, "draft": draft, "validation": draft.report, "content": draft.content, "media_choice": media_choice,
             "reasons": [issue.code for issue in draft.report.issues]}
+        if not persist_artifacts:
+            return result
         identity = hashlib.sha256((packet.model_dump_json() + brief.model_dump_json() + draft.model_dump_json()).encode()).hexdigest()[:24]
         directory = self.artifact_dir / identity
         try:
