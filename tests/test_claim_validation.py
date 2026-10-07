@@ -284,3 +284,71 @@ def test_confident_factual_title_is_not_unsupported_marketing(drafting_input):
     payload = response()
     payload["frontmatter"] = payload["frontmatter"].replace("PageIndex 채택 조건", "PageIndex guarantees zero data loss")
     assert "unsupported_claim" in codes(validate(payload, drafting_input))
+
+
+@pytest.mark.parametrize("assertion", [
+    "PageIndex encrypts all stored data",
+    "I have used PageIndex in production",
+    "PageIndex deletes stale records automatically",
+    "We have deployed PageIndex in production",
+    "PageIndex는 모든 저장 데이터를 암호화한다",
+])
+@pytest.mark.parametrize("position", ["heading", "title"])
+def test_unmapped_title_and_heading_cannot_assert_new_facts_or_experience(drafting_input, assertion, position):
+    payload = response()
+    if position == "heading":
+        payload["sections"][0]["text"] += "\n\n## " + assertion
+    else:
+        payload["frontmatter"] = payload["frontmatter"].replace("PageIndex 채택 조건", assertion)
+    report = validate(payload, drafting_input)
+    assert report.status == "NEEDS_REVISION"
+    assert codes(report) & {"unmapped_claim", "unsupported_claim", "invented_experience"}
+
+
+@pytest.mark.parametrize("heading", ["작동 원리", "PageIndex 선택 기준", "Alternative comparison"])
+def test_neutral_heading_labels_need_no_artificial_claims(drafting_input, heading):
+    payload = response()
+    payload["sections"][0]["text"] = "## " + heading + "\n\n" + payload["sections"][0]["text"]
+    assert validate(payload, drafting_input).status == "REVIEW_READY"
+
+
+def test_factual_heading_can_use_a_supported_claim_map(drafting_input):
+    payload = response()
+    sentence = "## " + payload["sections"][0]["claims"][0]["sentence"]
+    payload["sections"][0]["text"] = sentence
+    payload["sections"][0]["claims"][0]["sentence"] = sentence
+    assert validate(payload, drafting_input).status == "REVIEW_READY"
+
+
+@pytest.mark.parametrize("outcome", [
+    "PageIndex uses 4 GB less memory than Redis.",
+    "PageIndex costs $200 less per month than Redis.",
+    "PageIndex processes 1000 rps.",
+    "PageIndex uses 2 MiB less memory.",
+    "PageIndex costs USD 200 per month.",
+    "PageIndex costs USD200 per month.",
+    "PageIndex delivers rps1000.",
+    "PageIndex saves €80 per month.",
+    "PageIndex saves 200만원 per month.",
+    "PageIndex improves the result by 17 frobnitz.",
+    "RFC 9110 integration uses 4GB less memory.",
+])
+def test_quantitative_inference_cannot_use_an_unrelated_mechanism_as_measurement(drafting_input, outcome):
+    payload = response()
+    sentence = "추론: durable storage 조건이라면 " + outcome
+    payload["sections"].append({"id": "new_result", "text": sentence, "claims": [{
+        "sentence": sentence, "kind": "inference", "evidence_ids": ["E1"], "role": "context"}]})
+    report = validate(payload, drafting_input)
+    assert report.status == "NEEDS_REVISION"
+    assert "unsupported_metric" in codes(report)
+
+
+@pytest.mark.parametrize("identifier", ["RFC 9110", "HTTP/2", "Python3.12", "request_id_200", "CVE-2026-1234", "v2.1"])
+def test_identifiers_in_conditional_editorial_plans_are_not_quantitative_results(drafting_input, identifier):
+    payload = response()
+    sentence = f"추론: durable storage 조건이라면 {identifier} 관련 검토를 고려한다."
+    payload["sections"].append({"id": "plan", "text": sentence, "claims": [{
+        "sentence": sentence, "kind": "inference", "evidence_ids": ["E1"], "role": "context"}]})
+    report = validate(payload, drafting_input)
+    assert "unsupported_metric" not in codes(report)
+    assert report.status == "REVIEW_READY"

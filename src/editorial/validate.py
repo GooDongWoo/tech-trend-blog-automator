@@ -78,7 +78,7 @@ _LINK = re.compile(r"\[([^\]\n]+)\]\(([^)\n]+)\)")
 _PERSONAL = re.compile(
     r"직접[^.!?\n]{0,35}(?:써|쓰|사용|테스트|실행|측정|배포)|써\s?보니"
     r"|(?:내가|나는|우리(?:가|는)|내\s*(?:프로젝트|서비스|시스템))[^.!?\n]{0,40}(?:썼|써봤|사용했|테스트했|실행했|측정했|배포해|배포했|겪었|도입했|해봤|없앴)"
-    r"|\b(?:I|we)\s+(?:tested|used|ran|deployed|measured|tried)\b", re.I)
+    r"|\b(?:I|we)\s+(?:(?:have|had)\s+)?(?:tested|used|ran|deployed|measured|tried)\b", re.I)
 _FACTUAL = re.compile(r"guarantee|ensures?|supports?|always|never loses|보장|지원한다|작동한다|개선된다|사라졌다", re.I)
 
 _NUMERIC = re.compile(
@@ -89,7 +89,55 @@ _NUMERIC = re.compile(
 
 
 def _clean(text):
-    return " ".join(_LINK.sub("", text).strip().split())
+    prose = re.sub(r"^\s*#{1,6}\s+", "", text)
+    return " ".join(_LINK.sub("", prose).strip().split())
+
+
+def _neutral_heading(text):
+    """Only positive neutral labels bypass mapping, never arbitrary sentences.
+
+    An optional one-token topic identifier can name the subject. Assertions in
+    body headings must instead pass the ordinary claim-map checks; frontmatter
+    has no claim-map field, so factual headlines remain blocked.
+    """
+    labels = (
+        "작동 원리", "구현 원리", "채택 조건", "선택 기준", "대안", "대안 비교",
+        "비교", "제약 조건", "한계", "판단 기준", "검증 계획", "실험 조건",
+        "결론", "Mechanism", "Alternatives", "Alternative comparison", "Comparison",
+        "Adoption criteria", "Decision criteria", "Constraints", "Limitations",
+        "Verification plan", "Experiment conditions", "Conclusion",
+    )
+    label_pattern = "|".join(re.escape(label) for label in labels)
+    topic = r"[^\W\d_]\w*(?:[./-]\w+)*"
+    return bool(re.fullmatch(r"(?:" + topic + r"(?:\s*:\s*|\s+))?(?:" + label_pattern + r")", _clean(text), re.I))
+
+
+_IDENTIFIER = re.compile(
+    r"\b(?:RFC|ISO(?:/IEC)?)\s+\d+(?:[.:-]\d+)*\b"
+    r"|\b(?:HTTP|TLS|MQTT|AMQP)/\d+(?:\.\d+)*\b"
+    r"|\b(?:version)\s+\d+(?:\.\d+)*\b"
+    r"|\b[A-Za-z_][A-Za-z0-9_-]*\d[A-Za-z0-9_.-]*\b", re.I)
+_NUMBER = re.compile(r"(?<!\w)[+-]?\d+(?:[.,]\d+)*")
+_COMPACT_QUANTITY_PREFIX = re.compile(
+    r"\b(?:USD|EUR|KRW|JPY|GBP|CNY|CAD|AUD|rps|qps|tps|bps|[KMGT]i?B)\d", re.I)
+
+
+def _has_quantity(text):
+    """Unknown units cannot evade measurement checks by missing a unit list.
+
+    Named standards, protocol versions and lexical machine identifiers are not
+    numerical outcomes. Everything else with an explicit number is conservatively
+    quantitative, including byte/memory, currency, rates and unfamiliar units.
+    """
+    clean = _clean(text)
+    # USD200 and rps1000 are unit-first quantities, not machine IDs. Check
+    # these forms before identifier masking; generic unknown units still use
+    # the fallback number gate rather than an allow-by-missing-unit decision.
+    if _COMPACT_QUANTITY_PREFIX.search(clean):
+        return True
+    prose = _IDENTIFIER.sub(" ", clean)
+    prose = re.sub(r"^\s*\d+[.)]\s+", "", prose)  # List position, not outcome.
+    return bool(_NUMERIC.search(prose) or _NUMBER.search(prose))
 
 
 def _source_text(sentence, evidence):
@@ -123,7 +171,7 @@ def _editorial_only(text):
     text = _clean(text)
     if not text:
         return True
-    if _NUMERIC.search(text) or _PERSONAL.search(text):
+    if _has_quantity(text) or _PERSONAL.search(text):
         return False
     if _FACTUAL.search(text) or re.search(r"faster|is\b|are\b", text, re.I):
         return False
@@ -191,11 +239,11 @@ def validate_draft(text: DraftText, packet: ResearchPacket, brief: EditorialBrie
         issue("brief_incomplete", grounding=True)
     try:
         metadata = parse_frontmatter(text.frontmatter)
-        if _FACTUAL.search(metadata["title"]):
+        if not _neutral_heading(metadata["title"]):
             issue("unsupported_claim", "frontmatter", metadata["title"], grounding=True)
         if _PERSONAL.search(metadata["title"]):
             issue("invented_experience", "frontmatter", metadata["title"])
-        if _NUMERIC.search(metadata["title"]):
+        if _has_quantity(metadata["title"]):
             issue("unsupported_metric", "frontmatter", metadata["title"])
     except (ValueError, yaml.YAMLError, TypeError, RecursionError):
         issue("invalid_frontmatter", "frontmatter")
@@ -263,7 +311,7 @@ def validate_draft(text: DraftText, packet: ResearchPacket, brief: EditorialBrie
             quoted_source = bool(refs) and all(_source_text(sentence, claim) for claim in refs) and _attributed(sentence)
             if _PERSONAL.search(sentence) and not quoted_source and not valid_runs:
                 issue("invented_experience", sid, sentence)
-            numeric = bool(_NUMERIC.search(sentence))
+            numeric = bool(_has_quantity(sentence))
             if numeric:
                 metrics = [claim.metric_context for claim in refs if claim.metric_context]
                 # Every result is literal and original-author attributed; an
@@ -300,20 +348,20 @@ def validate_draft(text: DraftText, packet: ResearchPacket, brief: EditorialBrie
                     and any(claim.text in brief.adoption_constraints and _mentions(sentence, claim.text) for claim in refs)
                     and any(_mentions(sentence, condition) for condition in brief.reversal_conditions)):
                     roles.add("decision")
-        # Remove headings; heading metrics/experience are still screened below.
+        # Only neutral unmapped labels may bypass ordinary prose coverage.
         for line in remainder.splitlines():
             if line.lstrip().startswith("#"):
-                if _FACTUAL.search(line):
+                if not _neutral_heading(line):
                     issue("unmapped_claim", sid, line, grounding=True)
                 if _PERSONAL.search(line):
                     issue("invented_experience", sid, line)
-                if _NUMERIC.search(line):
+                if _has_quantity(line):
                     issue("unsupported_metric", sid, line)
                 continue
             for sentence in re.split(r"(?<=[.!?])\s+", line.strip()):
                 if _PERSONAL.search(sentence):
                     issue("invented_experience", sid, sentence)
-                if _NUMERIC.search(sentence):
+                if _has_quantity(sentence):
                     issue("unsupported_metric", sid, sentence, grounding=True)
                 if not _editorial_only(sentence):
                     issue("unmapped_claim", sid, sentence, grounding=True)

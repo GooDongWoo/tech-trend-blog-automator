@@ -52,3 +52,23 @@ Create a reviewable draft, with headings chosen for the actual source material.
   and conditions. An inference must not introduce unverified quantitative results.
 - Static and evidence cross-checks must both pass. Repair only implicated sections,
   at most twice; unresolved failures remain NEEDS_REVISION with their packet.
+
+- Unmapped titles and headings must be neutral topic/analysis labels. A body
+  heading asserting a fact or experience must pass the same claim map as prose.
+  Frontmatter has no claim map, so factual headlines remain blocked. Do not
+  treat an unrecognized predicate as harmless because it missed a blacklist.
+
+- Numerical assertions include memory/byte quantities, prices, rates and unknown
+  units. An unrecognized quantity must not default to ordinary inference. Named
+  standard references, protocol versions and lexical machine IDs are identifiers;
+  removing an ID must never hide a separate quantitative outcome in the sentence.
+
+- For an unmapped label, use an optional one-token topic name and a neutral
+  analysis label: 작동 원리, 구현 원리, 채택 조건, 선택 기준, 대안, 대안 비교,
+  비교, 제약 조건, 한계, 판단 기준, 검증 계획, 실험 조건, 결론; or Mechanism,
+  Alternatives, Alternative comparison, Comparison, Adoption criteria, Decision
+  criteria, Constraints, Limitations, Verification plan, Experiment conditions,
+  Conclusion. Headings remain optional and need no prescribed sequence. Other
+  factual body headings require mapped evidence; titles remain neutral.
+- Compact unit-first quantities such as USD200 or rps1000 must not be exempted
+  as machine identifiers. Standard/model/API IDs do not exempt another quantity.
