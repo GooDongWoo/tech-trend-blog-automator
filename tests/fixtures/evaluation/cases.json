@@ -1,0 +1,34 @@
+{
+  "fixture_provenance": "Hand-authored synthetic control-flow diagnostic. No model was called. Not a PageIndex source or a historical baseline input.",
+  "cases": [
+    {
+      "id": "synthetic-queue-diagnostic",
+      "topic_type": "library/tool",
+      "synthetic": true,
+      "model": "hand-authored-fixture-no-model",
+      "budget": {
+        "max_calls": 3
+      },
+      "packet": "queue-packet.json",
+      "packet_sha256": "c2899f93a8deffe999b11a06699030b1636f4709c10af1b6d4ba7af107b5c5ff",
+      "variants": {
+        "one_shot": {
+          "responses": "initial-response.json",
+          "responses_sha256": "5d04ca74b5d648858c5049efeae4ba8677029d63a1e24534243d3bfc81e093f4"
+        },
+        "packet": {
+          "responses": "initial-response.json",
+          "responses_sha256": "5d04ca74b5d648858c5049efeae4ba8677029d63a1e24534243d3bfc81e093f4"
+        },
+        "packet_validator": {
+          "responses": "initial-response.json",
+          "responses_sha256": "5d04ca74b5d648858c5049efeae4ba8677029d63a1e24534243d3bfc81e093f4"
+        },
+        "full": {
+          "responses": "repair-responses.json",
+          "responses_sha256": "4a895489e0345d14ce50eaffa57f8dab39247a8679b93f79ba79cbebea88ced4"
+        }
+      }
+    }
+  ]
+}

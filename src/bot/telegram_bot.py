@@ -46,6 +46,21 @@ class TrendBotApp:
         # Cache of current curated topics
         self.current_topics: Dict[int, CuratedTopic] = {}
 
+    def publication_block_reason(self):
+        if settings.editorial_shadow_mode:
+            return "shadow mode: 전체 초안·보고서를 검토할 수 있으며 발행은 차단됩니다."
+        if not settings.editorial_cutover_authorized:
+            return "cutover authorization required: 별도 운영 전환 승인이 필요합니다."
+        try:
+            from scripts.evaluate_drafts import load_json, release_gate
+            report = load_json(settings.editorial_quality_gate_report)
+            gate = release_gate(report["runs"], report["human_reviews"], set(report["required_topic_types"]))
+            if not gate["eligible"]:
+                return "quality gate blocked: " + ", ".join(gate["reasons"])
+        except (OSError, ValueError, KeyError, TypeError):
+            return "quality gate report unavailable or invalid"
+        return None
+
     async def start_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /start command."""
         chat_id = update.effective_chat.id
@@ -158,6 +173,8 @@ class TrendBotApp:
                 f"미해결 사항: {', '.join(issues)[:800] or '없음'}\n"
                 f"검토 참고: {', '.join(warnings)[:500] or '없음'}\n"
                 "첨부한 전체 본문과 근거 보고서를 확인하세요. 승인은 이 초안에만 기록됩니다.")
+        if reason := self.publication_block_reason():
+            text += "\n" + reason
         await bot.send_message(chat_id=chat_id, text=text, reply_markup=InlineKeyboardMarkup(rows),
                                disable_web_page_preview=True)
 
@@ -196,11 +213,16 @@ class TrendBotApp:
                 elif artifact.status not in {DraftStatus.APPROVED, DraftStatus.PUBLISHED} or artifact.content_sha256 != expected_hash:
                     raise ValueError("invalid approval state/hash")
                 callback = "p:" + approval_callback(artifact)[2:]
+                if reason := self.publication_block_reason():
+                    await query.edit_message_text(f"검토 승인 기록: {artifact.id}\n상태: {artifact.status.value}\n발행 차단: {reason}")
+                    return
                 await query.edit_message_text(f"검토 승인 기록: {artifact.id}\n상태: {artifact.status.value}\n아래 버튼은 승인한 초안을 Git 발행하고 push 성공 후 Vault에 동기화합니다.",
                     reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("승인한 초안 발행 / 동기화 재시도", callback_data=callback)]]))
             elif data.startswith(("p:", "c:")):
                 draft_id, expected_hash = decode_callback("a:" + data[2:])
                 self.pipeline.check_reviewer(draft_id, chat, user)
+                if reason := self.publication_block_reason():
+                    raise ValueError(reason)
                 result = await asyncio.to_thread(self.publisher.publish, self.pipeline.store, draft_id, expected_hash,
                                                  sync=self.sync, reconcile=data.startswith("c:"))
                 if result["success"]:

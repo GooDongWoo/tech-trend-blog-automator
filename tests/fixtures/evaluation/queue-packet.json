@@ -1,0 +1,66 @@
+{
+  "topic_id": "synthetic-queue",
+  "question": "When should the persistent queue be adopted?",
+  "sources": [
+    {
+      "url": "https://example.invalid/synthetic-queue",
+      "final_url": null,
+      "fetched_at": "2026-10-07T00:00:00Z",
+      "title": "Synthetic Queue tool library",
+      "kind": "markdown",
+      "sha256": "2a185b9c4f454cb063d36f833921fdd4b50f89d8336bde601283732eb0fc3e21",
+      "text": "# API mechanism\nPersist the request before acknowledgement.\f# Baseline alternatives\nCompare with the in-memory queue.\f# Deployment constraints\nRequires durable storage; unsuitable when writes are unavailable.",
+      "locations": [
+        "section:0",
+        "section:1",
+        "section:2"
+      ],
+      "error": null,
+      "diagnostics": [],
+      "snapshot_path": null,
+      "role": "primary"
+    }
+  ],
+  "claims": [
+    {
+      "text": "Persist the request before acknowledgement.",
+      "kind": "source_claim",
+      "source_refs": [
+        {
+          "url": "https://example.invalid/synthetic-queue",
+          "sha256": "2a185b9c4f454cb063d36f833921fdd4b50f89d8336bde601283732eb0fc3e21",
+          "location": "section:0"
+        }
+      ],
+      "metric_context": null,
+      "status": "unverified"
+    },
+    {
+      "text": "Compare with the in-memory queue.",
+      "kind": "source_claim",
+      "source_refs": [
+        {
+          "url": "https://example.invalid/synthetic-queue",
+          "sha256": "2a185b9c4f454cb063d36f833921fdd4b50f89d8336bde601283732eb0fc3e21",
+          "location": "section:1"
+        }
+      ],
+      "metric_context": null,
+      "status": "unverified"
+    },
+    {
+      "text": "Requires durable storage; unsuitable when writes are unavailable.",
+      "kind": "source_claim",
+      "source_refs": [
+        {
+          "url": "https://example.invalid/synthetic-queue",
+          "sha256": "2a185b9c4f454cb063d36f833921fdd4b50f89d8336bde601283732eb0fc3e21",
+          "location": "section:2"
+        }
+      ],
+      "metric_context": null,
+      "status": "unverified"
+    }
+  ],
+  "gaps": []
+}

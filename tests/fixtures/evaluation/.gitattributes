@@ -1,0 +1,2 @@
+# Frozen hashes bind original bytes, independently of core.autocrlf.
+*.json text eol=lf

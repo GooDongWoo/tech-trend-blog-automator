@@ -1,225 +1,71 @@
-# 🚀 Tech Trend Curation & Anti-AI Blog Automator
+# Tech Trend Blog Automator
 
-> **Curate personalized daily tech trends from global sources using your Obsidian knowledge graph & RAG depth, and generate witty, humorous, "anti-AI" developer blog posts with one-click GitHub Pages publishing.**
+Collect and curate technical topics, then create Korean developer drafts with an inspectable source packet, editorial brief, claim map and validation report. The runtime policy is `src/editorial/policy.md`; `AGENTS.md` is maintenance guidance.
 
----
+**Telegram runs in shadow mode by default.** It delivers complete draft/report attachments, source links, exact hashes and revision controls. A reviewer can approve a specific draft; publication remains blocked until a separate quality gate and operator cutover decision. No production cutover has been performed.
 
-## 📌 Overview
+## Draft and publication workflow
 
-Most AI-generated blog posts sound robotic, predictable, and devoid of personality. At the same time, keeping up with the overwhelming flood of tech news (GitHub, Hacker News, ArXiv, Reddit, GeekNews) takes hours of manual filtering.
+1. Collect topics from GeekNews, GitHub, Hacker News, Reddit, Hugging Face and arXiv, then curate using available user context. Vault notes describe interests and constraints; they do not prove firsthand experience.
+2. Fetch bounded source snapshots and retain their hashes and source locations. Missing evidence produces `NEEDS_RESEARCH`.
+3. Build a source-grounded brief, generate a mapped draft and validate it. At most two targeted revisions are allowed. Failures produce `NEEDS_REVISION`; no success-shaped fallback article is written.
+4. Select optional inspected, permitted media. The bundled historical GIFs are currently excluded because provenance/permission remains unknown.
+5. Persist a local review bundle and deliver the complete draft and report in Telegram. Approval binds the reviewed content and bundle hashes, reviewer and revision.
+6. After an independently authorized cutover, an approved draft can be published through a separate button. Git push confirmation precedes Vault sync. Vault indexing is never triggered.
 
-**Tech Trend Blog Automator** bridges this gap:
-1. **Profiles your real interests and knowledge depth** by scanning your local **Obsidian Vault** (diaries, active projects) and querying your local **Qdrant RAG** system to filter out trivial beginner topics you already know.
-2. **Concurrently scrapes 6 global tech trend sources** (GeekNews, GitHub Trending, Hacker News, Reddit, Hugging Face, ArXiv).
-3. **Curates the Top 5 most relevant, high-impact topics** and delivers an interactive briefing card to your **Telegram Bot**.
-4. **Deeply researches your selected topic** (fetching raw GitHub READMEs, docs, and community reactions).
-5. **Drafts a witty, plain-tone developer blog post** equipped with tech memes, architecture diagrams, and real-world code blocks—strictly adhering to an **"anti-AI"** writing style (no generic intros, no hollow conclusions, pure senior engineer voice).
-6. **Human-in-the-Loop Git publishing**: You preview the draft on Telegram and tap `[🚀 Approve & Push]` to publish to **GitHub Pages** while automatically syncing back a structured knowledge note with wikilinks into your **Obsidian Vault**.
+The images and architecture viewer in `docs/architecture*` describe the historical route and are not the current approval/publication contract. Current contracts and flow are in [the design](docs/superpowers/specs/2026-10-07-evidence-led-blog-pipeline-design.md).
 
----
+## Installation and configuration
 
-## 🏗️ Architecture
+Python 3.11+, Git, a Telegram token and a configured model provider are required for online operation. Offline tests and evaluation use local fixtures without credentials.
 
-![Architecture Diagram](docs/architecture-diagram.png)
+    python -m venv .venv
+    .venv\Scripts\Activate.ps1
+    python -m pip install -r requirements.txt -r requirements-dev.txt
 
-> 💡 **Interactive Architecture Viewer**: Open [`docs/architecture.html`](docs/architecture.html) in your browser to explore the diagram interactively with zoom, pan, focus views, and dark/light mode!
+Copy `.env.example` to `.env` and configure `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `GEMINI_API_KEY`, `GEMINI_MODEL`, `BLOG_REPO_PATH`, `BLOG_BASE_URL` and `OBSIDIAN_VAULT_PATH`. Group chats also require `TELEGRAM_REVIEWER_USER_ID`. Set `SCHEDULE_TIME` for the daily briefing.
 
-<details>
-<summary><b>Click to expand Mermaid text flowchart</b></summary>
+Retain these defaults while evaluating:
 
-```mermaid
-flowchart TD
-    subgraph Profiling["1. Interest & Depth Profiling"]
-        Vault["Obsidian Vault\n(10_Daily, 20_Projects)"] --> Scanner["Daily Scanner"]
-        RAG["Local Qdrant RAG\n(obsidian_knowledge)"] --> RAGChecker["RAG Depth Checker"]
-        Scanner & RAGChecker --> Profiler["Interest Profiler\n(Gemini 3.8 Flash)"]
-        Profiler --> Profile["User Knowledge Profile (JSON)"]
-    end
+    EDITORIAL_SHADOW_MODE=true
+    EDITORIAL_CUTOVER_AUTHORIZED=false
+    EDITORIAL_QUALITY_GATE_REPORT=
 
-    subgraph Collection["2. Multi-Source Trend Collection"]
-        GN["GeekNews"] & GH["GitHub Trending"] & HN["Hacker News"] & RD["Reddit"] & HF["Hugging Face"] & AX["ArXiv"]
-        GN & GH & HN & RD & HF & AX --> Collector["Async Collector\n(httpx + BeautifulSoup)"]
-        Collector --> RawTrends["Raw Trend Pool (30-50 items)"]
-    end
+Disabling shadow mode alone does not enable publication. Telegram checks a locally saved evaluation report with real, hash-bound human reviews across multiple topic types and a separate explicit cutover authorization. A passing report is evidence for the operator's decision; it never authorizes that decision by itself. The bundled synthetic evaluation can never pass this gate.
 
-    subgraph Curation["3. Matching & 5-Topic Curation"]
-        Profile & RawTrends --> Matcher["LLM Matcher & Scorer"]
-        Matcher --> Top5["Top 5 Curated Briefing\n(Summary + Angle + Link)"]
-    end
+The CLI publisher also requires a specific approved draft ID/hash. Shadow mode guards the Telegram route; it is not a general operating-system permission boundary. Do not run the publishing CLI against live paths during evaluation.
 
-    subgraph Interaction["4. Telegram Bot & Selection"]
-        Scheduler["Daily Scheduler\n(08:30 KST)"] --> Matcher
-        Top5 --> TeleCard["Telegram Briefing Message\n[1] [2] [3] [4] [5] Buttons"]
-        TeleCard --> UserPick["User Selects 1 Topic"]
-    end
+## Usage
 
-    subgraph Generation["5. Deep Research & Anti-AI Blog Writer"]
-        UserPick --> Scrape["Deep Web Scraper\n(GitHub Raw README / Docs)"]
-        Scrape --> MemeMgr["Tech Meme & Diagram Injector"]
-        MemeMgr --> Writer["Anti-AI Blog Writer\n(Plain Tone, Developer Voice)"]
-        Writer --> Draft["Jekyll Markdown Draft\n(_posts/YYYY-MM-DD-slug.md)"]
-    end
+    python main.py bot
+    python main.py send-briefing
+    python main.py test-pipeline
 
-    subgraph Publishing["6. Review Gate, Git Push & Obsidian Sync"]
-        Draft --> Preview["Telegram Preview & Approval"]
-        Preview --> UserApproval{"User Approves?"}
-        UserApproval -->|Approve| GitPush["Git Commit & Push\n(GitHub Pages Deployed)"]
-        UserApproval -->|Approve| ObsSync["Obsidian Knowledge Note Created\n& Daily Note Linked"]
-        UserApproval -->|Retry| Writer
-    end
-```
+`/now` and `/trend` request a briefing. Selecting a topic sends a complete local review bundle. Review approval records the exact draft; it performs no Git or Vault write. Regeneration supersedes the old approval button.
 
-</details>
+`test-pipeline` performs online collection/model work unless dependencies are explicitly injected; its draft output defaults to a temporary review directory. It is not the offline test command.
 
+## Offline evaluation and tests
 
----
+    python -m pytest -q
+    python -m scripts.evaluate_drafts --output temp/evaluation-example
 
-## ✨ Pros & Key Advantages
+The output directory must be new/empty and outside configured blog/Vault paths. Results include `report.json`, a private variant key, and an anonymous `blind/` packet with draft/source files and a pending human score sheet. Share only the blind directory before scoring. Agents are not human raters.
 
-- **Deep Personalization (RAG-Backed)**: Unlike generic newsletter bots, this engine knows what you built yesterday. It skips "What is Docker?" or "Intro to Vector DB" and targets advanced topics aligned with your current projects.
-- **True Multi-Channel Coverage**: Concurrently aggregates from Korean tech media (GeekNews), global developer feeds (GitHub, Hacker News, Reddit), and cutting-edge research (Hugging Face, ArXiv).
-- **"Anti-AI" Developer Voice**: Eliminates cliché AI phrases (*"In today's fast-evolving technological landscape..."*). Writes in punchy, candid, humorous developer Korean (`~했다`, `~다`, `~인 셈이다`) with relatable dev memes and Mermaid diagrams.
-- **Strict Human-in-the-Loop Safety**: Zero surprise commits. Posts are drafted locally and require explicit Telegram approval before pushing to Git.
-- **Bidirectional Second-Brain Sync**: Keeps your blog and Obsidian vault in sync. Every published post generates a companion resource note in Obsidian cross-linked with your daily logs.
-- **Model Agnostic & Fallback Resilient**: Uses Google's latest **Gemini 3.8 Flash** with automatic cascading fallbacks (`3.8` → `3.7` → `3.6`), and supports OpenAI or local **Ollama** models.
+**All eight historical baseline topics lack their frozen original source inputs, original model responses, prompts and budgets.** Stagehand, ai-memory, GAVEL, cua, ponytail, OpenID Foundation, PageIndex and browser communication are marked unreproducible for all four variants. No same-source historical ablation or article-quality uplift is claimed. Current pages must not be substituted for historical inputs.
 
----
+The bundled synthetic queue fixture replays four stage labels: old one-shot output, packet output, packet plus validator, and full drafting/validator/targeted-repair flow. It is a hand-authored diagnostic, with no model call. It tests harness behavior only; one-shot/packet generations are not reexecuted, and full replay omits media. Real captures require declared matching model/budget, source/output/prompt hashes, capture metadata, and exact prompt matching for full replay.
 
-## ⚠️ Limitations & Considerations (Cons)
+The report records raw unsupported-claim spans, first-person spans without logs, mapped-source coverage and issue codes. Human scores, meme fit, model elapsed time, tokens and cost per draft remain **not measured**. Offline replay time measures local Python work only. Source mappings are not factual verification; a first-person span without a log is not proof that a real author fabricated an experience.
 
-- **Reddit Scraping Sensitivity**: Reddit's public JSON API occasionally enforces IP-level rate limits (403 Forbidden). The system gracefully continues using the other 5 sources if Reddit is blocked.
-- **Jekyll Post Structure Default**: The writer formats frontmatter specifically for Jekyll (`_posts/YYYY-MM-DD-title.md`). Users on Astro or Hugo may need minor template adjustments in `src/writer/blog_writer.py`.
-- **Requires Running Daemon for Instant Button Handling**: The Telegram bot process must be running in the background (or scheduled via Windows Task Scheduler / systemd) to listen for inline button clicks.
+Release remains blocked until real blinded human review supplies zero critical defects and mean technical depth and decision clarity of at least 4/5 for every included topic type, with required-type coverage enforced separately. IDs must be unique and reviews bind valid SHA-256 hashes; unbound or duplicate records fail the gate. See [evaluation evidence, rubric and recovery](docs/editorial-evaluation.md). The temporary Git/fake-push/temporary-Vault rehearsal in `tests/test_publish_workflow.py` exercises publication mechanics only.
 
----
+## Recovery and rollback
 
-## 🛠️ Installation Guide
+Keep shadow mode enabled when research, validation or human review is incomplete. Correct the evidence/brief or regenerate a new review revision; never edit an approved bundle in place. A failed push does not sync the Vault. An uncertain push requires explicit remote-SHA reconciliation, and a failed Vault sync can be retried without another push.
 
-### 1. Prerequisites
-- **Python 3.10+** (Tested on Python 3.13)
-- **Git**
-- A **Telegram Bot Token** (Free via [@BotFather](https://t.me/BotFather))
-- A **Google Gemini API Key** (Free via [Google AI Studio](https://aistudio.google.com)) or an OpenAI API Key
+There is no implemented switch back to the old one-shot Telegram route. Operational rollback means stopping the bot and restoring an explicitly reviewed prior application revision after a separate operator decision. Old-route output must be labeled unverified; rollback does not waive review or publication approval.
 
-### 2. Clone the Repository
-```bash
-git clone https://github.com/yourusername/tech-trend-blog-automator.git
-cd tech-trend-blog-automator
-```
+## Privacy and license
 
-### 3. Set Up Virtual Environment & Dependencies
-```bash
-# Windows (PowerShell)
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-
-# Linux / macOS
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
----
-
-## ⚙️ Configuration (`.env`)
-
-Copy `.env.example` to `.env`:
-```bash
-cp .env.example .env
-```
-
-Edit `.env` with your settings:
-
-```env
-# ==============================================================================
-# Telegram Settings
-# ==============================================================================
-# 1. Get from @BotFather on Telegram
-TELEGRAM_BOT_TOKEN=123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ
-# 2. Your Telegram Chat ID (send /start to your bot to see your ID)
-TELEGRAM_CHAT_ID=123456789
-# 3. Daily scheduled notification time (24-hour format HH:MM)
-SCHEDULE_TIME=08:30
-
-# ==============================================================================
-# LLM Settings
-# ==============================================================================
-# Free API key from https://aistudio.google.com
-GEMINI_API_KEY=AIzaSy...
-GEMINI_MODEL=gemini-3.8-flash
-# Optional: OpenAI API Key
-OPENAI_API_KEY=
-
-# ==============================================================================
-# Local Paths & Blog Configuration
-# ==============================================================================
-# Path to your Obsidian Vault root
-OBSIDIAN_VAULT_PATH=C:/Users/username/Documents/Obsidian
-# Path to your GitHub Pages Jekyll repository root
-BLOG_REPO_PATH=C:/Users/username/projects/username.github.io
-# Base URL for your published blog
-BLOG_BASE_URL=https://username.github.io
-
-# ==============================================================================
-# Local Qdrant RAG Service (Optional)
-# ==============================================================================
-QDRANT_RAG_URL=http://localhost:8765
-```
-
----
-
-## 📖 Usage Guide
-
-### 1. Dry-Run Pipeline Test (CLI)
-Run a complete end-to-end dry-run without sending Telegram messages or committing to Git:
-```bash
-python main.py test-pipeline
-```
-This will:
-- Profile your Obsidian vault
-- Concurrently scrape all 6 trend sources
-- Curate the Top 5 topics
-- Generate a sample blog post draft in `_posts/`
-
-### 2. Send Instant Briefing to Telegram
-Trigger an immediate briefing to your Telegram chat right now:
-```bash
-python main.py send-briefing
-```
-
-### 3. Run the Telegram Bot & Daily Scheduler
-Start the persistent background bot:
-```bash
-python main.py bot
-```
-- The bot will poll for button interactions.
-- Every day at `SCHEDULE_TIME` (e.g. `08:30`), it automatically dispatches your 5-topic briefing.
-
----
-
-## 📱 Telegram Commands & Workflow
-
-1. Send `/start` to your bot to verify connection and inspect your `chat_id`.
-2. Send `/now` or `/trend` anytime to receive an on-demand Top 5 briefing.
-3. Tap any **`[1번 선택]` ~ `[5번 선택]`** button:
-   - The bot investigates the topic via deep web scraping.
-   - It drafts the post and sends back a preview with approval buttons.
-4. Tap **`[🚀 배포 승인 (Push)]`**:
-   - Executes `git add`, `git commit`, and `git push` to your GitHub Pages repo.
-   - Creates a structured knowledge note in Obsidian `40_Resources/42_기술_학습_위키/` and links it to today's daily note.
-
----
-
-## 🔒 Security & Privacy Audit
-
-When publishing this repository publicly:
-- **`.env` is strictly ignored** via `.gitignore`. Never commit `.env` or API keys.
-- **No hardcoded credentials or local usernames**: All paths and tokens are dynamically resolved via `config.py` and environment variables.
-- **Local-first data handling**: Your Obsidian vault contents are processed locally; only anonymized interest keywords and scraped public web data are submitted to the LLM API.
-
----
-
-## 📄 License
-
-This project is licensed under the [MIT License](LICENSE).
+`.env` and local review artifacts are ignored. Source text is untrusted input; model calls use the versioned runtime policy, public source snapshots and permitted user context. Local Vault contents must not be promoted to public experience claims. Licensed under [MIT](LICENSE).

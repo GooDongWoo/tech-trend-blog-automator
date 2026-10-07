@@ -309,7 +309,7 @@ def test_unpushed_unrelated_history_blocks_publication(publication):
     assert not (p.repo / "_posts").exists()
 
 
-def test_approved_bot_offers_hash_bound_publish_and_checks_reviewer(publication, monkeypatch):
+def test_approved_bot_offers_hash_bound_publish_and_checks_reviewer(publication, monkeypatch, authorized_test_cutover):
     from src.bot.telegram_bot import TrendBotApp
     p = publication
     monkeypatch.setattr(settings, "telegram_chat_id", "7")
@@ -459,7 +459,7 @@ def test_destination_symlink_cannot_escape_repo(publication, tmp_path):
     assert not list(external.iterdir())
 
 
-def test_publish_callback_rejects_changed_approved_content(publication, monkeypatch):
+def test_publish_callback_rejects_changed_approved_content(publication, monkeypatch, authorized_test_cutover):
     from src.bot.telegram_bot import TrendBotApp
     p = publication
     monkeypatch.setattr(settings, "telegram_chat_id", "7")

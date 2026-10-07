@@ -1,0 +1,82 @@
+[
+  {
+    "frontmatter": "---\nlayout: post\ntitle: \"Queue 채택 조건\"\ndate: \"2026-10-07 09:00:00 +0900\"\ncategories: [Tech]\ntags: [queue]\n---",
+    "sections": [
+      {
+        "id": "flow",
+        "text": "어떤 조건에서 선택할까?\n\n원문은 “Persist the request before acknowledgement.”라고 설명한다. [E1](https://example.invalid/synthetic-queue)\n\n직접 써봤다. It is 73% faster.",
+        "claims": [
+          {
+            "sentence": "원문은 “Persist the request before acknowledgement.”라고 설명한다. [E1](https://example.invalid/synthetic-queue)",
+            "kind": "source_claim",
+            "evidence_ids": [
+              "E1"
+            ],
+            "role": "mechanism"
+          }
+        ]
+      },
+      {
+        "id": "compare",
+        "text": "원문은 “Compare with the in-memory queue.”라고 설명한다. [E2](https://example.invalid/synthetic-queue)",
+        "claims": [
+          {
+            "sentence": "원문은 “Compare with the in-memory queue.”라고 설명한다. [E2](https://example.invalid/synthetic-queue)",
+            "kind": "source_claim",
+            "evidence_ids": [
+              "E2"
+            ],
+            "role": "alternative"
+          }
+        ]
+      },
+      {
+        "id": "conditions",
+        "text": "원문은 “Requires durable storage; unsuitable when writes are unavailable.”라고 설명한다. [E3](https://example.invalid/synthetic-queue)",
+        "claims": [
+          {
+            "sentence": "원문은 “Requires durable storage; unsuitable when writes are unavailable.”라고 설명한다. [E3](https://example.invalid/synthetic-queue)",
+            "kind": "source_claim",
+            "evidence_ids": [
+              "E3"
+            ],
+            "role": "constraint"
+          }
+        ]
+      },
+      {
+        "id": "decision",
+        "text": "추론: durable storage 조건이라면 in-memory queue 대안과 비교해 채택을 고려한다. writes are unavailable 조건에서는 선택을 바꾼다.",
+        "claims": [
+          {
+            "sentence": "추론: durable storage 조건이라면 in-memory queue 대안과 비교해 채택을 고려한다. writes are unavailable 조건에서는 선택을 바꾼다.",
+            "kind": "inference",
+            "evidence_ids": [
+              "E2",
+              "E3"
+            ],
+            "role": "decision"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "sections": [
+      {
+        "id": "flow",
+        "text": "어떤 조건에서 선택할까?\n\n원문은 “Persist the request before acknowledgement.”라고 설명한다. [E1](https://example.invalid/synthetic-queue)",
+        "claims": [
+          {
+            "sentence": "원문은 “Persist the request before acknowledgement.”라고 설명한다. [E1](https://example.invalid/synthetic-queue)",
+            "kind": "source_claim",
+            "evidence_ids": [
+              "E1"
+            ],
+            "role": "mechanism"
+          }
+        ]
+      }
+    ]
+  }
+]
