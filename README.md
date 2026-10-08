@@ -35,7 +35,13 @@ Retain these defaults while evaluating:
 
 Disabling shadow mode alone does not enable publication. Telegram checks a locally saved evaluation report with real, hash-bound human reviews across multiple topic types and a separate explicit cutover authorization. A passing report is evidence for the operator's decision; it never authorizes that decision by itself. The bundled synthetic evaluation can never pass this gate.
 
-The CLI publisher also requires a specific approved draft ID/hash. Shadow mode guards the Telegram route; it is not a general operating-system permission boundary. Do not run the publishing CLI against live paths during evaluation.
+The CLI publisher also requires a specific approved draft ID/hash. Shadow mode guards the Telegram route; it is not a general operating-system permission boundary. Ordinary evaluation must use temporary paths. An explicitly authorized one-post live trial may use the separate operator CLI after full review and approval of that exact `REVIEW_READY` draft. This does not authorize a production cutover or waive research, validation, manifest/hash or reviewer checks.
+
+For that separately authorized trial only:
+
+    python scripts/publish_and_sync.py <approved-draft-id> <approved-content-sha256> --review-root temp/review
+
+The CLI can write the configured live blog and Vault even when Telegram shadow mode is enabled. Verify the configured destinations and use only the reviewed ID/hash. Confirmed Git push precedes Vault sync; indexing is never triggered.
 
 ## Usage
 
