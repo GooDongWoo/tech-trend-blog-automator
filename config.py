@@ -26,6 +26,11 @@ class Settings(BaseSettings):
     gemini_api_key: str = Field(default="", alias="GEMINI_API_KEY")
     gemini_model: str = Field(default="gemini-3.8-flash", alias="GEMINI_MODEL")
     openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
+    openai_model: str = Field(default="gpt-4o-mini", alias="OPENAI_MODEL")
+    llm_request_timeout_seconds: float = Field(default=30, gt=0, alias="LLM_REQUEST_TIMEOUT_SECONDS")
+    llm_stage_timeout_seconds: float = Field(default=90, gt=0, alias="LLM_STAGE_TIMEOUT_SECONDS")
+    llm_max_attempts: int = Field(default=3, gt=0, le=10, alias="LLM_MAX_ATTEMPTS")
+    llm_fallback_models: list[str] = Field(default_factory=list, alias="LLM_FALLBACK_MODELS")
 
     # Paths
     obsidian_vault_path: Path = Field(

@@ -7,6 +7,7 @@ from typing import List, Dict, Optional
 from pydantic import BaseModel, Field, field_validator
 
 from config import settings
+from src.llm.client import ModelClient
 from src.editorial.models import SourceRecord, UserContext, UserStatement, VaultNoteRef
 from .daily_scanner import DailyScanner
 from .rag_checker import RAGChecker
@@ -75,28 +76,7 @@ class InterestProfiler:
         self.rag = RAGChecker(self.vault_path, self.daemon_url)
 
     def _call_llm(self, prompt: str) -> str:
-        if settings.gemini_api_key:
-            from google import genai
-            client = genai.Client(api_key=settings.gemini_api_key)
-            models_to_try = list(dict.fromkeys([settings.gemini_model, "gemini-3.8-flash",
-                "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite",
-                "gemini-3.1-flash-lite", "gemini-flash-latest"]))
-            for model in models_to_try:
-                try:
-                    response = client.models.generate_content(model=model, contents=prompt)
-                    if response.text:
-                        return response.text
-                except Exception as error:
-                    print(f"[InterestProfiler] Gemini {model} failed: {error}")
-        if settings.openai_api_key:
-            try:
-                from openai import OpenAI
-                response = OpenAI(api_key=settings.openai_api_key).chat.completions.create(
-                    model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}])
-                return response.choices[0].message.content or ""
-            except Exception as error:
-                print(f"[InterestProfiler] OpenAI call failed: {error}")
-        return ""
+        return ModelClient().generate("profile", prompt)
 
     def build_profile(self, days: int = 14, *, statements=(), run_logs=()) -> UserProfile:
         notes = self.scanner.get_recent_daily_notes(days=days)[:5] + self.scanner.get_active_projects()[:3]

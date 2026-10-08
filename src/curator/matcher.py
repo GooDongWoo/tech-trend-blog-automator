@@ -3,6 +3,7 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 
 from config import settings
+from src.llm.client import ModelClient
 from src.profiler.interest_profiler import UserProfile
 from src.collector.base import TrendItem
 
@@ -24,47 +25,7 @@ class TrendMatcher:
         pass
 
     def _call_llm(self, prompt: str) -> str:
-        if settings.gemini_api_key:
-            from google import genai
-            client = genai.Client(api_key=settings.gemini_api_key)
-            models_to_try = [
-                settings.gemini_model,
-                "gemini-3.8-flash",
-                "gemini-3.7-flash",
-                "gemini-3.6-flash",
-                "gemini-3.5-flash-lite",
-                "gemini-3.1-flash-lite",
-                "gemini-flash-latest",
-            ]
-            models_to_try = list(dict.fromkeys(models_to_try))
-            for model_name in models_to_try:
-                try:
-                    response = client.models.generate_content(
-                        model=model_name,
-                        contents=prompt
-                    )
-                    if response.text:
-                        return response.text
-                except Exception as e:
-                    print(f"[TrendMatcher] Gemini {model_name} failed: {e}. Trying next fallback...")
-
-
-
-        if settings.openai_api_key:
-            try:
-                from openai import OpenAI
-                client = OpenAI(api_key=settings.openai_api_key)
-                response = client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=[{"role": "user", "content": prompt}]
-                )
-                return response.choices[0].message.content or ""
-            except Exception as e:
-                print(f"[TrendMatcher] OpenAI API call failed: {e}")
-
-        # Fallback if no LLM key
-        print("[TrendMatcher] No LLM API key. Using heuristic selection.")
-        return ""
+        return ModelClient().generate("curate", prompt)
 
     def curate_top_5(self, profile: UserProfile, items: List[TrendItem]) -> List[CuratedTopic]:
         """Select and format Top 5 topics matching user's profile."""

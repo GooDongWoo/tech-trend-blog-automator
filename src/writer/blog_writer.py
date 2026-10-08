@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from config import settings
+from src.llm.client import ModelClient
 from src.curator.matcher import CuratedTopic
 from src.editorial.brief import build_brief
 from src.editorial.draft import LLMClient, write_draft
@@ -26,17 +27,7 @@ class BlogWriter:
         self.media_catalog = media_catalog
 
     def _call_llm(self, prompt: str) -> str:
-        if settings.gemini_api_key:
-            from google import genai
-            client = genai.Client(api_key=settings.gemini_api_key)
-            response = client.models.generate_content(model=settings.gemini_model, contents=prompt)
-            return response.text or ""
-        if settings.openai_api_key:
-            from openai import OpenAI
-            client = OpenAI(api_key=settings.openai_api_key)
-            response = client.chat.completions.create(model="gpt-4o", messages=[{"role": "user", "content": prompt}])
-            return response.choices[0].message.content or ""
-        raise RuntimeError("draft_llm_unavailable")
+        return ModelClient().generate("draft", prompt, artifact_dir=self.artifact_dir / "model-calls")
 
     def generate(self, prompt: str) -> str:
         return self._call_llm(prompt)
