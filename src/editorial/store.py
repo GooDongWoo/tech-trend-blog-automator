@@ -177,6 +177,13 @@ class DraftStore:
         write_json(directory / "packet.json", packet)
         write_json(directory / "brief.json", result.get("brief"))
         write_json(directory / "draft.json", result.get("draft"))
+        draft = result.get('draft')
+        if draft is not None and getattr(draft, 'grounding_review', None):
+            write_json(directory / 'grounding.json', draft.grounding_review)
+        capture_dir = directory / 'working' / 'model-calls'
+        if capture_dir.exists():
+            import shutil
+            shutil.copytree(capture_dir, directory / 'model-calls', dirs_exist_ok=True)
         (directory / "draft.md").write_text(result.get("content", ""), encoding="utf-8")
         media_paths = ()
         choice = result.get("media_choice")
@@ -200,6 +207,15 @@ class DraftStore:
             not report.static_passed or not report.grounding_passed or report.issues or not isinstance(evidence, ResearchPacket)):
             reasons.append("incomplete_validation")
             status = DraftStatus.NEEDS_REVISION
+        if draft is not None and getattr(draft, 'grounding_review', None):
+            from src.editorial.grounding import bound_verdicts
+            try:
+                verdicts = bound_verdicts(draft, evidence, draft.grounding_review)
+                if draft.content != result.get('content', '') or any(v != 'supported' for v in verdicts.values()):
+                    raise ValueError('invalid_final_grounding')
+            except (ValueError, AttributeError):
+                reasons.append('invalid_final_grounding')
+                status = DraftStatus.NEEDS_REVISION
         validation = report.model_dump(mode="json") if report else {}
         validation.update(status=status.value, reasons=reasons)
         write_json(directory / "validation.json", validation)

@@ -37,7 +37,7 @@ def test_drafts_from_policy_and_preserves_claim_map(drafting_input):
     assert draft.report.status == "REVIEW_READY"
     assert draft.packet == packet
     assert draft.sections[0].claims[0].evidence_ids == ("E1",)
-    assert "policy_version: 1.0" in llm.prompts[0]
+    assert "policy_version: 1.1" in llm.prompts[0]
     assert "snapshot" in llm.prompts[0].lower()
     assert packet.sources[0].sha256 in llm.prompts[0]
     assert "[MEME_1]" not in draft.content
@@ -67,7 +67,7 @@ def test_revision_replaces_only_implicated_section_and_injects_policy(drafting_i
     assert draft.report.status == "REVIEW_READY"
     assert draft.sections[1].text == response()["sections"][1]["text"]
     assert len(llm.prompts) == 2
-    assert "policy_version: 1.0" in llm.prompts[1]
+    assert "policy_version: 1.1" in llm.prompts[1]
     assert "flow" in llm.prompts[1]
     assert "invented_experience" in llm.prompts[1]
 

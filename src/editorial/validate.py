@@ -17,7 +17,8 @@ from src.editorial.models import (
     ClaimKind, DraftText, EditorialBrief, ResearchBlocked, ResearchPacket,
     ValidationIssue, ValidationReport, canonical_topic_url,
 )
-from src.research.extract import extract_sections
+from src.research.extract import extract_sections, verify_located_excerpt
+from src.editorial.grounding import bound_verdicts, reported_number_supported, derived_difference
 from src.editorial.media import IMAGE, load_catalog, validate_media
 
 
@@ -101,6 +102,10 @@ def _neutral_heading(text):
     body headings must instead pass the ordinary claim-map checks; frontmatter
     has no claim-map field, so factual headlines remain blocked.
     """
+    clean = _clean(text)
+    if not _has_quantity(clean) and not _PERSONAL.search(clean) and re.fullmatch(
+        r'(?:언제|어떤 조건에서|무엇을|어떻게) [^.!?\n]{1,60}(?:고려할까|선택할까|비교할까|검토할까|확인할까)\?', clean):
+        return True
     labels = (
         "작동 원리", "구현 원리", "채택 조건", "선택 기준", "대안", "대안 비교",
         "비교", "제약 조건", "한계", "판단 기준", "검증 계획", "실험 조건",
@@ -155,7 +160,7 @@ def _source_text(sentence, evidence):
 
 
 def _attributed(sentence):
-    return bool(re.match(r"(?:원문|원저자|저자|문서)(?:은|는)|The (?:author|source|document) (?:reports|states|claims):", _clean(sentence), re.I))
+    return bool(re.match(r"(?:원문|원저자|저자|문서|논문|연구진)(?:은|는)|저자 보고값으로|(?:논문|문서)에 따르면|The (?:author|source|document) (?:reports|states|claims):", _clean(sentence), re.I))
 
 
 def _conditional(text):
@@ -219,12 +224,17 @@ def _run_metric_supported(metric, run, sentence):
     return all(getattr(metric, field).casefold() in run.text.casefold() for field in ("target", "baseline", "conditions"))
 
 
-def validate_draft(text: DraftText, packet: ResearchPacket, brief: EditorialBrief) -> ValidationReport:
+def validate_draft(text: DraftText, packet: ResearchPacket, brief: EditorialBrief, *, grounding=None, media_catalog=None) -> ValidationReport:
     issues = []
     def issue(code, section=None, sentence="", detail="", *, grounding=False):
         issues.append(ValidationIssue(code=code, section_id=section, sentence=sentence, detail=detail,
             check="grounding" if grounding else "static"))
 
+    try:
+        verdicts = bound_verdicts(text, packet, grounding)
+    except ValueError as error:
+        issue(str(error), grounding=True)
+        verdicts = {}
     try:
         version, _ = load_policy()
         if brief.policy_version != version or text.policy_version != version:
@@ -232,7 +242,7 @@ def validate_draft(text: DraftText, packet: ResearchPacket, brief: EditorialBrie
     except (OSError, ValueError):
         issue("editorial_policy_unavailable")
     try:
-        issues.extend(validate_media(text.content, load_catalog()))
+        issues.extend(validate_media(text.content, media_catalog if media_catalog is not None else load_catalog()))
     except (OSError, ValueError):
         issue("media_catalog_unavailable")
     if packet.topic_id != brief.topic_id:
@@ -286,8 +296,12 @@ def validate_draft(text: DraftText, packet: ResearchPacket, brief: EditorialBrie
                 issue("unresolved_citation", sid, detail=label)
         if re.search(r"\[E\d+\](?!\()", section.text):
             issue("unresolved_citation", sid)
-        for mapped in section.claims:
+        for index, mapped in enumerate(section.claims):
             sentence = mapped.sentence
+            verdict = verdicts.get(f'{sid}:{index}') if verdicts is not None else None
+            semantic = verdict == 'supported'
+            if verdicts is not None and not semantic:
+                issue('grounding_' + (verdict or 'unknown'), sid, sentence, grounding=True)
             if section.text.count(sentence) != 1 or not re.search(r"(?<!\S)" + re.escape(sentence) + r"(?!\S)", section.text):
                 issue("claim_span_mismatch", sid, sentence)
                 continue
@@ -323,33 +337,49 @@ def validate_draft(text: DraftText, packet: ResearchPacket, brief: EditorialBrie
                 # inference cannot invent a number and pass by citing a metric.
                 own_metric = mapped.kind == "measurement" and metrics and valid_runs and all(
                     metric.run_record in valid_runs and _run_metric_supported(metric, metric.run_record, sentence) for metric in metrics)
-                if mapped.kind == "inference" or not metrics or not (quoted_source or own_metric):
+                reported = semantic and mapped.kind == 'source_claim' and _attributed(sentence) and reported_number_supported(sentence, refs, packet)
+                derived = False
+                if mapped.derived_from:
+                    try:
+                        value, unit = derived_difference(packet, mapped.derived_from)
+                        prose = _clean(sentence)
+                        expected_unit = '(?:퍼센트포인트|percentage points)' if unit == 'percentage_points' else re.escape(unit)
+                        found = re.findall(r'(?<![\w.])([-+]?\d+(?:\.\d+)?)\s*' + expected_unit, prose)
+                        derived = (semantic and mapped.kind == 'source_claim' and set(mapped.derived_from) == set(mapped.evidence_ids)
+                            and bool(re.search(r'계산한 차이|derived difference', prose, re.I)) and len(found) == 1
+                            and float(found[0]) == value and len(_NUMBER.findall(prose)) == 1 and _attributed(sentence))
+                    except ValueError:
+                        pass
+                if mapped.kind == "inference" or not metrics or not (quoted_source or own_metric or reported or derived):
                     issue("unsupported_metric", sid, sentence, grounding=True)
                 else:
                     context_text = section.text.casefold()
                     if any(not all(str(getattr(metric, field)).casefold() in context_text for field in ("target", "baseline", "conditions")) for metric in metrics):
                         issue("missing_metric_conditions", sid, sentence, grounding=True)
             if mapped.kind == "inference":
-                if not re.search(r"추론|inference", sentence, re.I) or not _conditional(sentence):
+                if (not semantic and not re.search(r"추론|inference", sentence, re.I)) or not _conditional(sentence):
                     issue("unlabeled_inference", sid, sentence, grounding=True)
                 if not refs or _FACTUAL.search(sentence) or re.search(r"확실히|항상|반드시|proven", sentence, re.I):
                     issue("unsupported_claim", sid, sentence, grounding=True)
             elif valid_runs and mapped.kind == "measurement":
                 pass
-            elif not refs or not any(_source_text(sentence, claim) for claim in refs):
+            elif not refs or not (semantic and _attributed(sentence)) and not any(_source_text(sentence, claim) for claim in refs):
                 issue("unsupported_claim", sid, sentence, grounding=True)
             for claim in refs:
                 if claim.status == "disputed" or claim.kind in {ClaimKind.INFERENCE, ClaimKind.HYPOTHESIS}:
                     issue("unsupported_claim", sid, sentence, grounding=True)
                 for ref in claim.source_refs:
-                    if claim.text not in sections.get((ref.url, ref.location), ""):
+                    source = next((s for s in packet.sources if s.url == ref.url), None)
+                    if source is None or not verify_located_excerpt(source, ref.location, claim.text):
                         issue("unsupported_claim", sid, sentence, grounding=True)
-            if mapped.role == "mechanism" and brief.key_mechanism and any(claim.text == brief.key_mechanism and _source_text(sentence, claim) for claim in refs):
+            if mapped.role == "mechanism" and brief.key_mechanism and any(claim.text == brief.key_mechanism and (semantic or _source_text(sentence, claim)) for claim in refs):
                 roles.add("mechanism")
-            if mapped.role == "alternative" and any(claim.text in brief.comparison and _source_text(sentence, claim) for claim in refs):
+            if mapped.role == "alternative" and any(claim.text in brief.comparison and (semantic or _source_text(sentence, claim)) for claim in refs):
                 roles.add("alternative")
             if mapped.role == "decision" and mapped.kind == "inference" and _conditional(sentence):
-                if (any(claim.text in brief.comparison and _mentions(sentence, claim.text) for claim in refs)
+                if semantic and any(c.text in brief.comparison for c in refs) and any(c.text in brief.adoption_constraints for c in refs):
+                    roles.add('decision')
+                elif (any(claim.text in brief.comparison and _mentions(sentence, claim.text) for claim in refs)
                     and any(claim.text in brief.adoption_constraints and _mentions(sentence, claim.text) for claim in refs)
                     and any(_mentions(sentence, condition) for condition in brief.reversal_conditions)):
                     roles.add("decision")

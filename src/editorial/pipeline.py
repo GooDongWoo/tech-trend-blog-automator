@@ -44,6 +44,9 @@ class EditorialPipeline:
     async def generate(self, topic_id: str) -> DraftArtifact:
         identity = self.store.begin(topic_id)
         writer = copy.copy(self.writer)
+        writer.artifact_dir = self.store.directory(identity) / 'working'
+        if getattr(writer, 'llm', None) is self.writer:
+            writer.llm = writer
         writer.researcher = copy.copy(self.writer.researcher)
         writer.researcher.artifact_dir = self.store.directory(identity) / "working" / "research"
         try:

@@ -56,7 +56,7 @@ def test_source_material_selects_kind_and_supports_editorial_decision(kind):
     assert "writes are unavailable" in brief.reversal_conditions[0]
     assert brief.evidence
     assert all(claim in research.claims for claim in brief.evidence)
-    assert brief.policy_version == "1.0"
+    assert brief.policy_version == "1.1"
 
 
 def test_protocol_does_not_invent_study_or_ablation():

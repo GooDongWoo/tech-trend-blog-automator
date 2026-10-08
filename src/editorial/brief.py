@@ -19,7 +19,7 @@ def load_policy() -> tuple[str, str]:
     """Load the versioned runtime policy independently of maintenance AGENTS.md."""
     text = POLICY_PATH.read_text(encoding="utf-8")
     match = re.search(r"^policy_version: (\S+)$", text, re.MULTILINE)
-    if not match or match.group(1) != "1.0":
+    if not match or match.group(1) != "1.1":
         raise ValueError("unsupported editorial policy version")
     return match.group(1), text
 

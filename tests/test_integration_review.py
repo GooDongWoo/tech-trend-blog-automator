@@ -247,7 +247,7 @@ def test_delivered_review_contains_complete_section_claim_map(tmp_path, drafting
     mappings = json.loads(report.split("## Section-to-claim map\n\n```json\n", 1)[1].split("\n```", 1)[0])
     assert [entry["section_id"] for entry in mappings] == ["flow", "compare", "conditions", "decision"]
     for entry, expected in zip(mappings, response()["sections"]):
-        assert entry["claims"] == [{**claim, "run_ids": []} for claim in expected["claims"]]
+        assert entry["claims"] == [{**claim, "run_ids": [], 'derived_from': []} for claim in expected["claims"]]
     inference = mappings[-1]["claims"][0]
     assert inference["kind"] == "inference" and inference["evidence_ids"] == ["E2", "E3"]
     assert "[E2]" not in inference["sentence"]  # Mapping remains visible without an inline citation.

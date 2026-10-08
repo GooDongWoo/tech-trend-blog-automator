@@ -1,4 +1,4 @@
-policy_version: 1.0
+policy_version: 1.1
 
 # Evidence-led editorial policy
 
@@ -40,9 +40,13 @@ Create a reviewable draft, with headings chosen for the actual source material.
 - Map core technical assertions, numerical results and experience sentences to
   stable packet evidence IDs or supplied run IDs. Signposts, questions and
   conditional editorial opinions need no artificial source IDs.
-- Cite packet references only. Show original-author attribution and literal
-  supporting prose; a valid citation alone is not support for a new assertion.
-- Mark inference visibly, with source premises and conditional choice criteria.
+- Cite packet references only. Use natural Korean attribution and faithful
+  paraphrases. Paraphrases require an independently generated review bound by
+  code to exact sentence, content and evidence hashes; unknown or contradicted
+  judgments block. Writer supplied verdicts are not accepted. Literal offline
+  fixtures remain usable. This machine review is not human approval or truth proof.
+- Express inference with source premises and conditional choice criteria;
+  natural wording does not require a repeated 추론 prefix.
   Include a concrete mechanism, meaningful alternative and reversal condition.
 - Headings, diagrams, code, numbers and memes are optional, selected by content.
   Media is chosen only after the written argument passes validation. Prefer a
@@ -55,6 +59,11 @@ Create a reviewable draft, with headings chosen for the actual source material.
   original author's first-person report remains their attributed quotation.
 - Numerical results require the original author's value/unit, target, baseline
   and conditions. An inference must not introduce unverified quantitative results.
+- Derived differences are labelled 계산한 차이 and separately mapped through
+  derived_from to exactly two located, verified reported operands. Units, target,
+  baseline, conditions, snapshot and owning study must match. Percent subtraction
+  uses percentage points. Cross-benchmark/study comparisons, ratios and unfamiliar
+  calculations remain unresolved; a semantic reviewer cannot waive these guards.
 - Static and evidence cross-checks must both pass. Repair only implicated sections,
   at most twice; unresolved failures remain NEEDS_REVISION with their packet.
 
@@ -75,5 +84,7 @@ Create a reviewable draft, with headings chosen for the actual source material.
   criteria, Constraints, Limitations, Verification plan, Experiment conditions,
   Conclusion. Headings remain optional and need no prescribed sequence. Other
   factual body headings require mapped evidence; titles remain neutral.
+- Nonassertive questions such as 언제 채택을 고려할까? may be headings.
+  A question containing a quantity or personal experience still needs its guards.
 - Compact unit-first quantities such as USD200 or rps1000 must not be exempted
   as machine identifiers. Standard/model/API IDs do not exempt another quantity.

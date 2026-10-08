@@ -12,19 +12,28 @@ from src.editorial.draft import LLMClient, write_draft
 from src.editorial.media import MemeCatalog, apply_media, load_catalog
 from src.editorial.models import ResearchBlocked, ResearchPacket, UserContext, ValidationIssue
 from src.editorial.validate import parse_frontmatter
+from src.editorial.validate import validate_draft
+from src.editorial.grounding import review_draft
 from .deep_researcher import DeepResearcher
 
 
 class BlogWriter:
     """Produce local review artifacts; publishing is a separate approval boundary."""
 
-    def __init__(self, blog_repo_path: Path | None = None, *, artifact_dir: Path | None = None, llm: LLMClient | None = None, media_catalog: MemeCatalog | None = None):
+    def __init__(self, blog_repo_path: Path | None = None, *, artifact_dir: Path | None = None, llm: LLMClient | None = None, media_catalog: MemeCatalog | None = None, reviewer=None):
         self.blog_repo_path = blog_repo_path or settings.blog_repo_path
         self.posts_dir = self.blog_repo_path / "_posts"  # Compatibility path only.
         self.artifact_dir = artifact_dir or Path("temp/drafts")
         self.researcher = DeepResearcher(self.artifact_dir / "research", model=ModelClient())
         self.llm = llm or self
         self.media_catalog = media_catalog
+        # Injected offline literal writers keep legacy fixtures usable. Real
+        # generation always uses a separately invoked reviewer stage.
+        self.reviewer = reviewer
+        self.default_reviewer = llm is None and reviewer is None
+
+    def review_generate(self, prompt):
+        return ModelClient().generate('grounding', prompt, artifact_dir=self.artifact_dir / 'model-calls')
 
     def _call_llm(self, prompt: str) -> str:
         return ModelClient().generate("draft", prompt, artifact_dir=self.artifact_dir / "model-calls")
@@ -42,13 +51,24 @@ class BlogWriter:
         brief = build_brief(packet, user_context or UserContext())
         if isinstance(brief, ResearchBlocked):
             return {"status": brief.status, "reasons": list(brief.reasons), "packet": packet, "brief": brief, "publishable": False}
-        draft = await asyncio.to_thread(write_draft, brief, packet, self.llm)
+        writer = self
+        class Reviewer:
+            def generate(self, prompt):
+                return writer.review_generate(prompt)
+        reviewer = Reviewer() if self.default_reviewer else self.reviewer
+        draft = await asyncio.to_thread(write_draft, brief, packet, self.llm, reviewer=reviewer)
+        final_failure = 'media_catalog_unavailable'
         try:
             catalog = self.media_catalog if self.media_catalog is not None else load_catalog()
             draft, media_choice = apply_media(brief, draft, catalog)
-        except (OSError, ValueError):
+            if media_choice is not None:
+                final_failure = 'final_grounding_failed'
+                review = await asyncio.to_thread(review_draft, draft, packet, reviewer) if reviewer is not None else None
+                draft = draft.model_copy(update={'grounding_review': review.model_dump(mode='json') if review else None,
+                    'report': validate_draft(draft, packet, brief, grounding=review, media_catalog=catalog)})
+        except Exception as error:
             report = draft.report.model_copy(update={"status": "NEEDS_REVISION", "static_passed": False,
-                "issues": (*draft.report.issues, ValidationIssue(code="media_catalog_unavailable"))})
+                "issues": (*draft.report.issues, ValidationIssue(code=final_failure, detail=type(error).__name__))})
             draft = draft.model_copy(update={"report": report})
             media_choice = None
         result = {"status": draft.report.status, "publishable": False, "topic": topic, "packet": packet,
@@ -63,6 +83,9 @@ class BlogWriter:
             directory.mkdir(parents=True, exist_ok=True)
             for name, model in (("packet", packet), ("brief", brief), ("draft", draft), ("validation", draft.report)):
                 (directory / f"{name}.json").write_text(model.model_dump_json(indent=2), encoding="utf-8")
+            if draft.grounding_review:
+                import json
+                (directory / 'grounding.json').write_text(json.dumps(draft.grounding_review, ensure_ascii=False, indent=2), encoding='utf-8')
             packet_md = f"# Evidence packet\n\nQuestion: {packet.question}\nTopic: {packet.topic_id}\n"
             packet_md += "\n## Source snapshots\n\n" + "\n".join(
                 f"- {source.url} [{source.role}]; SHA-256: {source.sha256}; error: {source.error}" for source in packet.sources)

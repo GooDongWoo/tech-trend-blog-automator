@@ -257,7 +257,7 @@ class EditorialBrief(Contract):
     study: PaperStudy | None = None
     warnings: tuple[NonEmpty, ...] = ()
     user_context: UserContext = Field(default_factory=UserContext)
-    policy_version: NonEmpty = "1.0"
+    policy_version: NonEmpty = "1.1"
 
 
 class DraftStatus(StrEnum):
@@ -330,6 +330,8 @@ class ClaimMapping(Contract):
     evidence_ids: tuple[NonEmpty, ...] = ()
     run_ids: tuple[NonEmpty, ...] = ()
     role: Literal["context", "mechanism", "alternative", "constraint", "decision", "reversal"] = "context"
+    # Only supported arithmetic is first operand minus second, verified in code.
+    derived_from: tuple[NonEmpty, ...] = ()
 
 
 class DraftSection(Contract):
@@ -371,8 +373,10 @@ class DraftText(Contract):
     sections: tuple[DraftSection, ...] = ()
     packet: ResearchPacket | None = None
     report: ValidationReport | None = None
-    policy_version: NonEmpty = "1.0"
+    policy_version: NonEmpty = "1.1"
     revision_attempts: int = Field(default=0, ge=0, le=2)
+    # Separate review record constructed by grounding.review_draft, never DraftPayload.
+    grounding_review: dict | None = None
 
     @property
     def content(self) -> str:
