@@ -9,9 +9,10 @@ import subprocess
 import yaml
 
 from config import settings
+from src.curator.matcher import CuratedTopic
 from src.editorial.media import IMAGE
-from src.editorial.models import DraftArtifact, DraftStatus
-from src.editorial.store import DraftStore, write_json
+from src.editorial.models import DraftArtifact, DraftStatus, UserContext
+from src.editorial.store import DraftStore, bound_input_hash, write_json
 
 
 class GitPublisher:
@@ -152,13 +153,28 @@ class GitPublisher:
         manifest = json.loads((directory / "manifest.json").read_text(encoding="utf-8"))
         if hashlib.sha256((directory / "manifest.json").read_bytes()).hexdigest() != artifact.review_sha256:
             raise ValueError("review manifest changed")
+        input_path = directory / "input.json"
+        if "input.json" not in manifest or not input_path.is_file():
+            raise ValueError("reviewed bound input missing; generate a fresh reviewed input")
         snapshots = {}
-        for path in (artifact.content_path, *artifact.media_paths):
+        for path in (input_path, artifact.content_path, *artifact.media_paths):
             name = path.relative_to(directory).as_posix()
             data = path.read_bytes()
             if hashlib.sha256(data).hexdigest() != manifest.get(name):
                 raise ValueError("review file changed or absent from manifest: " + name)
             snapshots[path] = data
+        # Registration files can change after approval. Consume only the exact
+        # input bytes in this reviewed bundle, using the captured input identity.
+        try:
+            bound_input = json.loads(snapshots[input_path])
+            if set(bound_input) != {"topic", "user_context"} or bound_input["user_context"] is None:
+                raise ValueError("obsolete input")
+            reviewed_topic = CuratedTopic.model_validate(bound_input["topic"])
+            UserContext.model_validate(bound_input["user_context"])
+        except (ValueError, TypeError, KeyError) as error:
+            raise ValueError("reviewed bound input invalid or obsolete; generate a fresh reviewed input") from error
+        if bound_input_hash(bound_input) != artifact.topic_id:
+            raise ValueError("reviewed bound input changed; generate a fresh reviewed input")
         body = snapshots[artifact.content_path].decode("utf-8")
         if hashlib.sha256(snapshots[artifact.content_path]).hexdigest() != artifact.approved_sha256:
             raise ValueError("approved content hash changed")
@@ -184,9 +200,6 @@ class GitPublisher:
         # Compute the terminal artifact before push so later local mutation cannot
         # erase a confirmed external publication from the durable state.
         published = artifact.transition(DraftStatus.PUBLISHED, content_sha256=artifact.content_sha256)
-        reviewed_topic = store.topic(artifact.topic_id)
-        if hashlib.sha256(reviewed_topic.model_dump_json().encode()).hexdigest() != artifact.topic_id:
-            raise ValueError("registered topic hash changed")
         topic = reviewed_topic.model_dump(mode="json")
         info = {"draft_id": artifact.id, "title": front["title"], "slug": artifact.id,
                 "date": date, "topic": topic, "file_path": str(self._target(post))}

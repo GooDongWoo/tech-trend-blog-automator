@@ -22,7 +22,7 @@ def api():
         pytest.fail("durable editorial pipeline is missing")
 
 
-def setup_pipeline(tmp_path, drafting_input, *, payload=None, research=None):
+def setup_pipeline(tmp_path, drafting_input, *, payload=None, research=None, user_context=None):
     packet, _ = drafting_input
     writer = BlogWriter(artifact_dir=tmp_path / "adapter", llm=SimpleNamespace(
         generate=lambda prompt: json.dumps(response() if payload is None else payload)))
@@ -30,7 +30,7 @@ def setup_pipeline(tmp_path, drafting_input, *, payload=None, research=None):
     pipeline = api().EditorialPipeline(tmp_path / "review", writer=writer)
     topic = CuratedTopic(rank=1, title="PageIndex", url=packet.sources[0].url, source="fixture",
         one_line_summary="queue", relevance_reason="reliability", suggested_angle=packet.question)
-    topic_id = pipeline.register_topic(topic)
+    topic_id = pipeline.register_topic(topic, user_context=user_context)
     return pipeline, topic_id
 
 

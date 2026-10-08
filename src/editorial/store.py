@@ -24,7 +24,8 @@ def write_json(path: Path, value):
     temporary.replace(path)
 
 
-def _input_hash(data):
+def bound_input_hash(data):
+    """Identity shared by captured selection and reviewed publication input."""
     return hashlib.sha256(json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
@@ -78,7 +79,7 @@ class DraftStore:
     def register_topic(self, topic: CuratedTopic, *, user_context: UserContext | None = None) -> str:
         context = user_context if user_context is not None else UserContext()
         data = {"topic": topic.model_dump(mode="json"), "user_context": context.model_dump(mode="json")}
-        identity = _input_hash(data)
+        identity = bound_input_hash(data)
         directory = self.root / "topics"
         directory.mkdir(parents=True, exist_ok=True)
         path = directory / (identity + ".json")
@@ -101,7 +102,7 @@ class DraftStore:
             if hashlib.sha256(topic.model_dump_json().encode()).hexdigest() != topic_id:
                 raise ValueError("topic input changed")
             return {"topic": topic.model_dump(mode="json"), "user_context": None}
-        if _input_hash(data) != topic_id:
+        if bound_input_hash(data) != topic_id:
             raise ValueError("topic input changed")
         return data
 

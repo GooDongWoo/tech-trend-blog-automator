@@ -11,6 +11,7 @@ import pytest
 from config import settings
 from drafting_fixtures import drafting_input
 from test_pipeline import setup_pipeline
+from test_context_delivery import context_fixture
 from test_media import catalog
 from src.editorial.pipeline import approval_callback
 from src.publisher.git_publisher import GitPublisher
@@ -45,8 +46,11 @@ def publication(tmp_path, monkeypatch, drafting_input):
     git("config", "branch.main.remote", "origin")
     git("config", "branch.main.merge", "refs/heads/main")
     settings.obsidian_vault_path.mkdir()
-    pipeline, topic_id = setup_pipeline(tmp_path, drafting_input)
+    context, original_run, _ = context_fixture(tmp_path)
+    pipeline, topic_id = setup_pipeline(tmp_path, drafting_input, user_context=context)
     artifact = asyncio.run(pipeline.generate(topic_id))
+    assert (artifact.content_path.parent / "input.json").is_file()
+    original_run.unlink()  # Publication must consume its own reviewed run/input.
     events = []
     state = {"push_error": None, "git_error": None, "remote_sha": None, "transport_calls": [], "push_output": None}
     def run(args, **kwargs):
