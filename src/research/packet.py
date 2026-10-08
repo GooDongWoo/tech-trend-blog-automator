@@ -6,7 +6,7 @@ import re
 
 from src.curator.matcher import CuratedTopic
 from src.editorial.models import EvidenceClaim, MetricContext, ResearchBlocked, ResearchPacket, SourceRecord, SourceRef, canonical_topic_url, stable_topic_id
-from src.research.extract import extract_sections, metric_scope, verify_metric_context
+from src.research.extract import extract_sections, metric_scope, metric_context_sections, verify_metric_context
 
 
 def select_proposed_evidence(packet: ResearchPacket, proposals: dict) -> ResearchPacket:
@@ -31,7 +31,7 @@ def select_proposed_evidence(packet: ResearchPacket, proposals: dict) -> Researc
         if context:
             if not verify_metric_context(source, owner.location, proposal["text"], **context):
                 raise ValueError("unverified metric context")
-            scoped = [s for s in extract_sections(source) if metric_scope(s) == metric_scope(owner)]
+            scoped = metric_context_sections(owner, extract_sections(source))
             refs = tuple(SourceRef(url=source.url, sha256=source.sha256, location=s.location)
                 for s in scoped if any(context[field] in s.text for field in ("baseline", "conditions", "target")))
             context = MetricContext(**context, context_refs=refs)

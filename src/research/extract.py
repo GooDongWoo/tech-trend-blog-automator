@@ -88,7 +88,32 @@ def metric_scope(section: Section) -> tuple[str, ...]:
             # Keep the complete owning heading. A parsed prefix can collapse
             # 1.1/1.2, 1/1/1/2, or multiword experiment IDs into one scope.
             return headings[:index + 1]
+        numbered = re.match(r"^(?:\d+(?:\.\d+)*|[a-z](?:\.\d+)*)\s+(.+)$", headings[index])
+        if numbered:
+            label = numbered[1]
+            structural = re.match(r"^(?:experimental\s*setup|conditions?|settings?|results?|performance(?:\s|on)|metrics?|baselines?|implementation details)\b", label)
+            # Named numbered benchmark/model sections own their descendants.
+            # Generic setup/results sections still belong to their parent study.
+            named_result = (re.match(r"^(?:performance|results?)\s*on\s*\S+", label)
+                            and not re.search(r"\band\b|\band(?=[a-z])|\bacross\b|&", label))
+            if not structural or named_result or re.search(r"model\s*sizes?|\b\d+b\b", label):
+                return headings[:index + 1]
     return headings[:-1]
+
+
+def metric_context_sections(owner: Section, sections: list[Section]) -> list[Section]:
+    """Allow own-study context and explicitly marked parent setup only."""
+    scope = metric_scope(owner)
+    result = []
+    for section in sections:
+        candidate = metric_scope(section)
+        same_study = candidate == scope
+        shared_parent = (bool(candidate) and len(candidate) < len(scope)
+            and scope[:len(candidate)] == candidate
+            and bool(re.search(r"\b(?:experimental\s*setup|conditions?|settings?)\b", section.title, re.I)))
+        if same_study or shared_parent:
+            result.append(section)
+    return result
 
 
 def extract_sections(source: SourceRecord) -> list[Section]:
@@ -108,7 +133,7 @@ def extract_sections(source: SourceRecord) -> list[Section]:
         if source.kind == "pdf":
             # Keep original page locations, while giving each literal span its
             # section ancestry. No text or raw snapshot bytes are rewritten.
-            heading_pattern = r"(?m)^((?:\d+(?:\.\d+)*|[A-Z](?:\.\d+)*) )([A-Z][A-Z –—\-]+)\s*$"
+            heading_pattern = r"(?m)^((?:\d+(?:\.\d+)*|[A-Z](?:\.\d+)*) )([A-Z][A-Z0-9 –—\-]+)\s*$"
             cursor = 0
             title = " > ".join(t for _, t in pdf_headings) or location
             for match in re.finditer(heading_pattern, block):
@@ -161,7 +186,7 @@ def verify_metric_context(source: SourceRecord, location: str, text: str, *,
     condition_datasets = {name for name in datasets if re.search(r"\b" + re.escape(name) + r"\b", conditions)}
     if outcome_datasets and condition_datasets and not outcome_datasets & condition_datasets:
         return False
-    scoped = [s for s in sections if metric_scope(s) == metric_scope(owners[0])]
+    scoped = metric_context_sections(owners[0], sections)
     return all(phrase.strip() and any(phrase in s.text for s in scoped)
                for phrase in (baseline, conditions, target))
 

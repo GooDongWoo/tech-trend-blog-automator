@@ -182,3 +182,36 @@ def test_model_missing_facts_stay_needs_research(tmp_path):
     result=asyncio.run(DeepResearcher(tmp_path,fetcher=lambda *a,**k:source,model=Model()).research(topic(source.url)))
     assert result['status']=='NEEDS_RESEARCH'
     assert 'evaluation split missing' in result['reasons']
+
+
+@pytest.mark.parametrize('heading_a,heading_b', [('ALFWORLD','WEBSHOP'),('MODEL 3B','MODEL 7B'),
+    ('PERFORMANCE ON ALFWORLD','PERFORMANCE ON WEBSHOP')])
+def test_numbered_siblings_cannot_borrow_generic_context(tmp_path,heading_a,heading_b):
+    from src.research.extract import verify_metric_context, extract_sections
+    from src.research.packet import build_packet, select_proposed_evidence
+    from src.editorial.brief import _metric_reasons
+    from src.editorial.models import EvidenceClaim, MetricContext, SourceRef
+    source=record('https://arxiv.org/pdf/1234.56789',
+        f'4 EXPERIMENTS\n4.1 {heading_a}\nBaseline: GRPO. Conditions: CPU A. Success rate 98.4%.\n'
+        f'4.2 {heading_b}\nBaseline: PPO. Conditions: GPU B. Success rate 84.7%.',kind='pdf')
+    context=dict(value=84.7,unit='%',target='Success rate',baseline='GRPO',conditions='CPU A')
+    assert not verify_metric_context(source,'page:1','Success rate 84.7%',**context)
+    packet=build_packet(topic(source.url),[source],artifact_dir=tmp_path)
+    with pytest.raises(ValueError,match='unverified metric context'):
+        select_proposed_evidence(packet,{'claims':[dict(url=source.url,location='page:1',
+            text='Success rate 84.7%',metric_context=context)],'gaps':[]})
+    sections=extract_sections(source)
+    owner=next(s for s in sections if '84.7%' in s.text)
+    claim=EvidenceClaim(text='Success rate 84.7%',kind='source_claim',metric_context=MetricContext(**context),
+        source_refs=(SourceRef(url=source.url,sha256=source.sha256,location=owner.location),))
+    reasons=_metric_reasons(claim,{(source.url,s.location):s for s in sections},{source.url:source.role})
+    assert any('unsupported_metric_conditions' in reason for reason in reasons)
+
+
+def test_numbered_siblings_can_use_explicit_shared_parent_setup():
+    from src.research.extract import verify_metric_context
+    source=record('https://arxiv.org/pdf/1234.56789',
+        '4 EXPERIMENTS\n4.1 EXPERIMENTALSETUP\nBaseline: GRPO. Conditions: shared CPU.\n'
+        '4.2 ALFWORLD\nSuccess rate 98.4%.\n4.3 WEBSHOP\nSuccess rate 84.7%.',kind='pdf')
+    assert verify_metric_context(source,'page:1','Success rate 84.7%',value=84.7,unit='%',
+        target='Success rate',baseline='GRPO',conditions='shared CPU')

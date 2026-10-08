@@ -10,7 +10,7 @@ from src.editorial.models import (
     ClaimKind, EditorialBrief, PaperStudy, ResearchBlocked, ResearchPacket,
     UserContext, canonical_topic_url,
 )
-from src.research.extract import extract_sections, metric_scope
+from src.research.extract import extract_sections, metric_context_sections
 
 POLICY_PATH = Path(__file__).with_name("policy.md")
 
@@ -128,8 +128,8 @@ def _metric_reasons(claim, sections, roles):
     if not any(_contains_phrase(section.title + "\n" + section.text, context.target)
                and not _documents_absence(section.text) for section in referenced):
         reasons.append(f"unsupported_metric_target:{location}")
-    scopes = {(ref.url, metric_scope(sections[(ref.url, ref.location)])) for ref in claim.source_refs
-              if (ref.url, ref.location) in sections and roles.get(ref.url) != "secondary"}
+    owners = [(ref.url, sections[(ref.url, ref.location)]) for ref in claim.source_refs
+              if (ref.url, ref.location) in sections and roles.get(ref.url) != "secondary"]
     context_sections = {
         "baseline": r"\b(?:baseline|alternatives?|compare|compared|comparison|against|versus)\b|기준선|비교|대안",
         "conditions": r"\b(?:conditions?|experimental\s*setup|experimentalsetup|settings?|environment|workloads?|hardware|workers?|batch)\b|실험 조건|환경|부하",
@@ -137,9 +137,10 @@ def _metric_reasons(claim, sections, roles):
     for field, cues in context_sections.items():
         # Same-document context is insufficient: an experiment cannot borrow a
         # sibling's setup. Explicitly missing setup also blocks manual metadata.
-        scoped_sections = [section for (url, _), section in sections.items()
-                           if (url, metric_scope(section)) in scopes
-                           and re.search(cues, section.title + "\n" + section.text, re.IGNORECASE)]
+        scoped_sections = [section for url, owner in owners
+                           for section in metric_context_sections(owner,
+                               [s for (source_url, _), s in sections.items() if source_url == url])
+                           if re.search(cues, section.title + "\n" + section.text, re.IGNORECASE)]
         supported = (not any(_documents_absence(section.text) for section in scoped_sections)
                      and any(_contains_phrase(section.text, getattr(context, field)) for section in scoped_sections))
         if not supported:
