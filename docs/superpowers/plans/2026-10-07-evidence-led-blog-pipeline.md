@@ -10,6 +10,23 @@
 
 **Spec:** [근거 중심 기술 블로그 자동화 설계](../specs/2026-10-07-evidence-led-blog-pipeline-design.md)
 
+## Implementation status — 2026-10-08
+
+Units 0–7 and Unit 8's replay infrastructure, blind-review packet and default
+Telegram shadow gate are implemented and independently reviewed. Checked boxes
+record implemented work; they do not certify production publication or actual
+article-quality improvement. Unit 0 scores are explicitly agent inspection,
+not human ratings. Final verification and integration state are recorded in
+[refactor-status.md](../../refactor-status.md).
+
+The eight historical topics have no frozen original source/model/prompt/budget
+captures and remain unreproducible. Real matched model ablation, human blinded
+ratings, model token/time/cost and meme-fit measurements remain pending. Current
+public-source shadow investigation does not replace historical inputs. Recovery
+is documented; no old-route Telegram switch is implemented. Restoring a reviewed
+prior application revision is a separate operator decision. The remaining Unit 8
+checkboxes below retain these incomplete acceptance conditions.
+
 ## Global Constraints
 
 - All tests use local fixtures, fake LLM responses, temporary blog repositories, and temporary Vault directories; tests never call live APIs, push, or index the Vault.
@@ -43,10 +60,10 @@ The exact split can be reduced if two files remain small and change together. Do
 
 **Files:** Add `pytest` to the dev dependency group or a dedicated `requirements-dev.txt`; create `tests/fixtures/`, `tests/test_current_pipeline.py`, `docs/editorial-evaluation.md`.
 
-- [ ] Record 8–12 existing blog posts as a read-only baseline manifest with path, topic type, and evaluation date. Include PageIndex, Stagehand, and the OpenID Foundation article. Do not silently modify these posts.
-- [ ] Build tiny HTML, README, PDF, LLM-response, and local GIF fixtures. The fixtures must contain known claim locations and one unsupported quantitative claim.
-- [ ] Write tests that characterize current failure modes: PDF content is missing, empty LLM output creates a template, two memes are inserted without topic matching, and publish can be attempted after a 500-character preview. Mark these as expected current behavior until their owning unit changes them.
-- [ ] Define a review sheet for technical depth, claim provenance, decision clarity, naturalness, and meme fit. Measure baseline values before changing prompts.
+- [x] Record 8–12 existing blog posts as a read-only baseline manifest with path, topic type, and evaluation date. Include PageIndex, Stagehand, and the OpenID Foundation article. Do not silently modify these posts.
+- [x] Build tiny HTML, README, PDF, LLM-response, and local GIF fixtures. The fixtures must contain known claim locations and one unsupported quantitative claim.
+- [x] Write tests that characterize current failure modes: PDF content is missing, empty LLM output creates a template, two memes are inserted without topic matching, and publish can be attempted after a 500-character preview. Mark these as expected current behavior until their owning unit changes them.
+- [x] Define a review sheet for technical depth, claim provenance, decision clarity, naturalness, and meme fit. Measure baseline values before changing prompts.
 
 **Gate:** `python -m pytest tests/test_current_pipeline.py -q` passes offline and a baseline review sheet contains values rather than assumed scores. The test command must not create files in the real blog repository.
 
@@ -56,9 +73,9 @@ The exact split can be reduced if two files remain small and change together. Do
 
 **Interfaces:** `SourceRecord(url, fetched_at, title, kind, sha256, text, locations, error)`; `EvidenceClaim(text, kind, source_refs, metric_context, status)`; `ResearchPacket(topic_id, question, sources, claims, gaps)`; `UserContext(goals, constraints, interests, experience_refs)`; `EditorialBrief(topic_id, post_kind, thesis, comparison, decision_criteria, reversal_conditions)`; `DraftArtifact(id, topic_id, content_path, content_sha256, evidence_path, report_path, status, media_paths)`.
 
-- [ ] Add Pydantic validation for source references, claim kinds, measurements, and legal state transitions. A measurement without baseline, unit, or source/run record is invalid.
-- [ ] Add serialization round-trip tests and a transition test: `NEEDS_RESEARCH` cannot become `APPROVED`; `REVIEW_READY` can become `APPROVED` only after its content hash is checked.
-- [ ] Introduce stable identifiers based on canonical topic URL plus source snapshot, avoiding a title-derived ID.
+- [x] Add Pydantic validation for source references, claim kinds, measurements, and legal state transitions. A measurement without baseline, unit, or source/run record is invalid.
+- [x] Add serialization round-trip tests and a transition test: `NEEDS_RESEARCH` cannot become `APPROVED`; `REVIEW_READY` can become `APPROVED` only after its content hash is checked.
+- [x] Introduce stable identifiers based on canonical topic URL plus source snapshot, avoiding a title-derived ID.
 
 **Gate:** `python -m pytest tests/test_editorial_models.py -q` passes and the models reject a numerical claim with no provenance. No current entry point behavior changes yet.
 
@@ -68,11 +85,11 @@ The exact split can be reduced if two files remain small and change together. Do
 
 **Interfaces:** `fetch_source(url: str) -> SourceRecord`; `extract_sections(source: SourceRecord) -> list[Section]`; `build_packet(topic: CuratedTopic, sources: list[SourceRecord]) -> ResearchPacket`.
 
-- [ ] Preserve full extracted text in a local source snapshot; apply a relevance-based context budget to the LLM prompt instead of `raw_content[:3000]` and `lines[:120]`.
-- [ ] Fetch a GitHub README, ordinary HTML, and PDF as distinct formats. For PDF, extract page text with page references; if no reliable text exists, return `NEEDS_RESEARCH` with the reason `unreadable_pdf`.
-- [ ] Capture original URL, final URL, retrieval time, content hash, and section/page references. Prefer primary documents and attach secondary reporting only as context.
-- [ ] Treat HTTP failures, blocked pages, and partial extraction as failures with diagnostics; never substitute `topic.one_line_summary` for source text.
-- [ ] Add fixture tests for all three formats, redirect, missing PDF text, and a source that contains conflicting claims.
+- [x] Preserve full extracted text in a local source snapshot; apply a relevance-based context budget to the LLM prompt instead of `raw_content[:3000]` and `lines[:120]`.
+- [x] Fetch a GitHub README, ordinary HTML, and PDF as distinct formats. For PDF, extract page text with page references; if no reliable text exists, return `NEEDS_RESEARCH` with the reason `unreadable_pdf`.
+- [x] Capture original URL, final URL, retrieval time, content hash, and section/page references. Prefer primary documents and attach secondary reporting only as context.
+- [x] Treat HTTP failures, blocked pages, and partial extraction as failures with diagnostics; never substitute `topic.one_line_summary` for source text.
+- [x] Add fixture tests for all three formats, redirect, missing PDF text, and a source that contains conflicting claims.
 
 **Gate:** `python -m pytest tests/test_research.py -q` passes offline. A packet for the PDF fixture contains a verifiable page reference; a blank PDF produces `NEEDS_RESEARCH`.
 
@@ -82,12 +99,12 @@ The exact split can be reduced if two files remain small and change together. Do
 
 **Interfaces:** `build_brief(packet: ResearchPacket, user_context: UserContext) -> EditorialBrief | ResearchBlocked`.
 
-- [ ] Define four post kinds: paper/benchmark, library/tool, protocol/standard, and design comparison. Choose the kind from source material, not from a generic fixed heading template.
-- [ ] Require a one-sentence question, thesis, comparison alternative, key mechanism, adoption constraints, and reversal condition. For paper posts, capture study dataset, baseline, metrics, ablation, and limitations only when the paper actually provides them.
-- [ ] Distinguish user interests from user experience. A Vault note may inform the comparison criteria, but first-person claims require an explicitly attached run log or user-authored statement marked for publication.
-- [ ] Build `UserContext` from traceable user statements and Vault note references. When the daemon is unavailable, label a local search as a local search; do not report it as RAG evidence. Remove the static fallback claiming specific expertise and return an explicit `unknown` depth where evidence is absent.
-- [ ] Refuse a brief whose proposed thesis depends on an unsupported claim. Return a short list of missing facts instead of prose.
-- [ ] Write tests for the four post kinds, an insufficient-evidence packet, daemon-unavailable context, and a profile with no proof of hands-on experience.
+- [x] Define four post kinds: paper/benchmark, library/tool, protocol/standard, and design comparison. Choose the kind from source material, not from a generic fixed heading template.
+- [x] Require a one-sentence question, thesis, comparison alternative, key mechanism, adoption constraints, and reversal condition. For paper posts, capture study dataset, baseline, metrics, ablation, and limitations only when the paper actually provides them.
+- [x] Distinguish user interests from user experience. A Vault note may inform the comparison criteria, but first-person claims require an explicitly attached run log or user-authored statement marked for publication.
+- [x] Build `UserContext` from traceable user statements and Vault note references. When the daemon is unavailable, label a local search as a local search; do not report it as RAG evidence. Remove the static fallback claiming specific expertise and return an explicit `unknown` depth where evidence is absent.
+- [x] Refuse a brief whose proposed thesis depends on an unsupported claim. Return a short list of missing facts instead of prose.
+- [x] Write tests for the four post kinds, an insufficient-evidence packet, daemon-unavailable context, and a profile with no proof of hands-on experience.
 
 **Gate:** `python -m pytest tests/test_brief.py tests/test_user_context.py -q` passes. A protocol post can pass without an ablation table; a benchmark post cannot repeat a bare percentage without its context; missing profile data never becomes an invented first-person story.
 
@@ -97,12 +114,12 @@ The exact split can be reduced if two files remain small and change together. Do
 
 **Interfaces:** `write_draft(brief: EditorialBrief, packet: ResearchPacket, llm: LLMClient) -> DraftText`; `validate_draft(text: DraftText, packet: ResearchPacket, brief: EditorialBrief) -> ValidationReport`.
 
-- [ ] Version the runtime editorial policy and inject it into the drafting and revision prompts. Add an `AGENTS.md` section instructing maintainers to update the runtime policy and tests when editorial requirements change.
-- [ ] Ask the LLM for a claim map alongside prose: each core technical sentence points to evidence IDs or is marked as an inference. Generated citations must resolve to packet references.
-- [ ] Require the body to explain one concrete mechanism, a meaningful alternative, and the conditional decision. Do not force arbitrary headings, a Mermaid diagram, a code block, a number, or a meme.
-- [ ] Reject invented personal experience, unverifiable numerical comparisons, placeholder citations, and confident claims absent from the packet. Revise only the implicated section, with at most a small fixed retry count; then remain `NEEDS_REVISION`.
-- [ ] Remove the current success-shaped fallback template. LLM outages leave the source packet and failure reason intact.
-- [ ] Add fixture tests for unsupported claims, correct attribution to an original author, valid first-person run log, failed LLM response, and accurate Jekyll frontmatter.
+- [x] Version the runtime editorial policy and inject it into the drafting and revision prompts. Add an `AGENTS.md` section instructing maintainers to update the runtime policy and tests when editorial requirements change.
+- [x] Ask the LLM for a claim map alongside prose: each core technical sentence points to evidence IDs or is marked as an inference. Generated citations must resolve to packet references.
+- [x] Require the body to explain one concrete mechanism, a meaningful alternative, and the conditional decision. Do not force arbitrary headings, a Mermaid diagram, a code block, a number, or a meme.
+- [x] Reject invented personal experience, unverifiable numerical comparisons, placeholder citations, and confident claims absent from the packet. Revise only the implicated section, with at most a small fixed retry count; then remain `NEEDS_REVISION`.
+- [x] Remove the current success-shaped fallback template. LLM outages leave the source packet and failure reason intact.
+- [x] Add fixture tests for unsupported claims, correct attribution to an original author, valid first-person run log, failed LLM response, and accurate Jekyll frontmatter.
 
 **Gate:** `python -m pytest tests/test_drafting.py tests/test_claim_validation.py -q` passes. The PageIndex fixture cannot produce “직접 써보니” without supplied run evidence.
 
@@ -112,10 +129,10 @@ The exact split can be reduced if two files remain small and change together. Do
 
 **Interfaces:** `choose_media(brief: EditorialBrief, draft: DraftText, catalog: MemeCatalog) -> MediaChoice | None`; `render_media(choice: MediaChoice) -> str`.
 
-- [ ] Inspect existing local GIFs and record only verifiable visible content, source/use notes, suitable context, and factual alt text. If an asset cannot be confidently described or used, exclude it from the catalog.
-- [ ] Select 0 or 1 relevant meme after the argument is written. Use an explicit `None` path as the normal outcome. Keep the same deterministic fixture input stable across test runs.
-- [ ] Add a validator that rejects duplicate captions, “짤 설명” prose, invented quotes/scenes, missing local assets, and excessive media count.
-- [ ] Prefer a real diagram, code fragment, or result table when it carries the technical point better than a GIF.
+- [x] Inspect existing local GIFs and record only verifiable visible content, source/use notes, suitable context, and factual alt text. If an asset cannot be confidently described or used, exclude it from the catalog.
+- [x] Select 0 or 1 relevant meme after the argument is written. Use an explicit `None` path as the normal outcome. Keep the same deterministic fixture input stable across test runs.
+- [x] Add a validator that rejects duplicate captions, “짤 설명” prose, invented quotes/scenes, missing local assets, and excessive media count.
+- [x] Prefer a real diagram, code fragment, or result table when it carries the technical point better than a GIF.
 
 **Gate:** `python -m pytest tests/test_media.py -q` passes. An unrelated protocol article gets no meme, and a chosen GIF has accurate alt text with no explanatory caption.
 
@@ -125,11 +142,11 @@ The exact split can be reduced if two files remain small and change together. Do
 
 **Interfaces:** `generate(topic_id: str) -> DraftArtifact`; `get_draft(draft_id: str) -> DraftArtifact`; `approve(draft_id: str, expected_sha256: str) -> DraftArtifact`.
 
-- [ ] Store each run's source snapshots, packet, brief, Markdown, validation report, and status under a stable local draft ID. Preserve failed artifacts for diagnosis without placing them in Jekyll `_posts`.
-- [ ] Show the Telegram reviewer the full local draft path, provenance summary, unresolved issues, and one-click source links. A 500-character teaser alone is insufficient for approval.
-- [ ] Bind callback data to draft ID and content hash, not `last_draft`. A retry creates a new revision; an older approval button cannot publish the newer file.
-- [ ] Make `test-pipeline` a read-only dry run for external systems: explicitly select a temporary output root or require a flag to write into the actual blog repo.
-- [ ] Test two simultaneous drafts, bot restart, retry, stale approval, and blocked validation using fake bot and local storage.
+- [x] Store each run's source snapshots, packet, brief, Markdown, validation report, and status under a stable local draft ID. Preserve failed artifacts for diagnosis without placing them in Jekyll `_posts`.
+- [x] Show the Telegram reviewer the full local draft path, provenance summary, unresolved issues, and one-click source links. A 500-character teaser alone is insufficient for approval.
+- [x] Bind callback data to draft ID and content hash, not `last_draft`. A retry creates a new revision; an older approval button cannot publish the newer file.
+- [x] Make `test-pipeline` a read-only dry run for external systems: explicitly select a temporary output root or require a flag to write into the actual blog repo.
+- [x] Test two simultaneous drafts, bot restart, retry, stale approval, and blocked validation using fake bot and local storage.
 
 **Gate:** `python -m pytest tests/test_pipeline.py -q` passes. Generating a draft never changes the real blog repo or Vault, and stale approval is rejected.
 
@@ -137,11 +154,11 @@ The exact split can be reduced if two files remain small and change together. Do
 
 **Files:** Modify `src/publisher/git_publisher.py`, `src/publisher/obsidian_sync.py`, `src/bot/telegram_bot.py`; add `tests/test_publish_workflow.py`. Retire or rewrite `scripts/publish_and_sync.py` so it cannot bypass validation.
 
-- [ ] Validate `APPROVED` status, content hash, destination repository, and allowed paths immediately before copying the article and referenced assets to Jekyll.
-- [ ] Stage only the article and assets belonging to that draft. Check the Git result and return the commit SHA or a specific error. Never report success after a failed push.
-- [ ] Run Obsidian sync only after push succeeds. If Vault sync fails, keep `PUBLISHED` plus a distinct `SYNC_FAILED` note and allow idempotent retry without another push.
-- [ ] Review changes in a temporary Git repo and temporary Vault. Assert that no unrelated staged files enter the commit and that a duplicate approval creates no second post.
-- [ ] Remove hard-coded historical topics and direct push behavior from `scripts/publish_and_sync.py` or turn it into a validated draft-ID command.
+- [x] Validate `APPROVED` status, content hash, destination repository, and allowed paths immediately before copying the article and referenced assets to Jekyll.
+- [x] Stage only the article and assets belonging to that draft. Check the Git result and return the commit SHA or a specific error. Never report success after a failed push.
+- [x] Run Obsidian sync only after push succeeds. If Vault sync fails, keep `PUBLISHED` plus a distinct `SYNC_FAILED` note and allow idempotent retry without another push.
+- [x] Review changes in a temporary Git repo and temporary Vault. Assert that no unrelated staged files enter the commit and that a duplicate approval creates no second post.
+- [x] Remove hard-coded historical topics and direct push behavior from `scripts/publish_and_sync.py` or turn it into a validated draft-ID command.
 
 **Gate:** `python -m pytest tests/test_publish_workflow.py -q` passes with fake Git failures and temp repositories. Real Git push and Vault writes remain unexercised until a separately authorized end-to-end rehearsal.
 
@@ -152,7 +169,7 @@ The exact split can be reduced if two files remain small and change together. Do
 - [ ] Generate new drafts for the baseline topics with frozen source snapshots. Compare current and new outputs under the same declared model, input sources, and budget; note any runs that cannot be reproduced.
 - [ ] Run a small pipeline ablation on the same topics: current one-shot flow; evidence packet only; evidence packet plus validator; full flow. Track claim errors, false first-person, source coverage, human scores, token/time cost, and meme fit. The goal is diagnosis, not statistical significance.
 - [ ] Have a human review blind to variant labels. Use the rubric in the spec. Do not treat a model grader as the sole judge of style or truth.
-- [ ] Enable shadow mode for the Telegram route: show the new draft and report without allowing its publication until the quality gate passes on multiple topic types.
+- [x] Enable shadow mode for the Telegram route: show the new draft and report without allowing its publication until the quality gate passes on multiple topic types.
 - [ ] Accept rollout only when critical defects are 0 in the evaluation set and mean technical depth and decision clarity are each at least 4/5. If one type underperforms, keep it blocked and improve its source/brief path.
 - [ ] Document operational recovery, cost per draft, and how to revert the bot to the old route without labeling old-route output as verified.
 

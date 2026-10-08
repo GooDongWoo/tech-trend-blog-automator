@@ -4,7 +4,7 @@ Collect and curate technical topics, then create Korean developer drafts with an
 
 **Telegram runs in shadow mode by default.** It delivers complete draft/report attachments, source links, exact hashes and revision controls. A reviewer can approve a specific draft; publication remains blocked until a separate quality gate and operator cutover decision. No production cutover has been performed.
 
-Current implementation, verification boundaries and pending quality work: [refactor status](docs/refactor-status.md).
+Current implementation, verification boundaries and pending quality work: [refactor status](docs/refactor-status.md). See the [current architecture](docs/architecture.md) and [change log](docs/changelog.md) for the flow and changes.
 
 ## Draft and publication workflow
 
@@ -15,7 +15,7 @@ Current implementation, verification boundaries and pending quality work: [refac
 5. Persist a local review bundle and deliver the complete draft and report in Telegram. Approval binds the reviewed content and bundle hashes, reviewer and revision.
 6. After an independently authorized cutover, an approved draft can be published through a separate button. Git push confirmation precedes Vault sync. Vault indexing is never triggered.
 
-The images and architecture viewer in `docs/architecture*` describe the historical route and are not the current approval/publication contract. Current contracts and flow are in [the design](docs/superpowers/specs/2026-10-07-evidence-led-blog-pipeline-design.md).
+The historical `docs/architecture.json`, `docs/architecture.html` and PNG exports describe the pre-refactor route. The JSON metadata and HTML viewer are marked as historical; the PNGs remain preserved records. Use [the current architecture](docs/architecture.md) for the implemented flow and [the design](docs/superpowers/specs/2026-10-07-evidence-led-blog-pipeline-design.md) for the original requirements.
 
 ## Installation and configuration
 
@@ -68,6 +68,6 @@ Keep shadow mode enabled when research, validation or human review is incomplete
 
 There is no implemented switch back to the old one-shot Telegram route. Operational rollback means stopping the bot and restoring an explicitly reviewed prior application revision after a separate operator decision. Old-route output must be labeled unverified; rollback does not waive review or publication approval.
 
-## Privacy and license
+## Privacy
 
-`.env` and local review artifacts are ignored. Source text is untrusted input; model calls use the versioned runtime policy, public source snapshots and permitted user context. Local Vault contents must not be promoted to public experience claims. Licensed under [MIT](LICENSE).
+`.env` and local review artifacts are ignored. Source text is untrusted input; model calls use the versioned runtime policy, public source snapshots and permitted user context. Local Vault contents must not be promoted to public experience claims.

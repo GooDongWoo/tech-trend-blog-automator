@@ -1,6 +1,8 @@
 # 리팩토링 구현 상태 — 2026-10-08
 
-구현 기준 커밋: `c9e57fb`. 작업 브랜치: `codex/evidence-blog-pipeline`.
+구현 기준 커밋: `c9e57fb`. 통합 기준 커밋: `55dc9b5`.
+
+2026-10-08 작업 브랜치 `codex/evidence-blog-pipeline`의 커밋 25개를 프로젝트 `main`에 fast-forward 방식으로 병합했다. 기존 기능별 커밋은 유지했다. [변경 기록](changelog.md), [현재 아키텍처](architecture.md), README와 구현 계획의 완료 상태를 갱신했다. 과거 JSON·HTML·PNG 다이어그램은 리팩토링 이전 자료로 구분한다.
 
 Unit 0–7과 Unit 8의 평가 도구·shadow 설정은 구현 및 독립 리뷰를 마쳤다.
 실제 글의 품질 향상, 동일 조건의 모델 ablation, 사람의 블라인드 평가와 운영 전환은 아직 완료되지 않았다.
@@ -28,9 +30,9 @@ Unit 0–7과 Unit 8의 평가 도구·shadow 설정은 구현 및 독립 리뷰
 | 최종 독립 리뷰 | 승인 | 수치 실험 범위, 문맥 예산, 전체 주장 연결표, 사용자 맥락 보존, 발행 입력 계약 및 실제 원문 처리 |
 | 이전 전체 모음 | 353 passed | Unit 8 게이트 수정과 이후 통합 수정 **이전** 코드; 최종 전체 모음 통과를 의미하지 않음 |
 
-집중 회귀에서는 먼저 실패를 확인한 뒤 수정했다. 상세 실행 기록은 작업용 `.superpowers/sdd/2026-10-07-evidence-led-blog-pipeline/`에 보존하며 Git에서는 제외한다.
+집중 회귀에서는 먼저 실패를 확인한 뒤 수정했다. 상세 실행 기록은 작업용 `.superpowers/sdd/2026-10-07-evidence-led-blog-pipeline/`에 보존한다. 매체 검토 보고서 `task-5-report.md`는 Git에 포함하며 나머지 작업 기록은 제외한다.
 
-실제 블로그·Vault 쓰기, Vault 색인, Git push, Telegram 전달과 운영 전환은 수행하지 않았다. 공개 PageIndex 원문은 shadow 조사용으로 읽었으며 모델 호출은 0회였다.
+자동화 프로젝트의 코드·문서 통합과 원격 반영은 실제 블로그 발행과 별개다. 실제 블로그·Vault 쓰기, Vault 색인, 발행용 Git push, Telegram 전달과 운영 전환은 수행하지 않았다. 공개 PageIndex 원문은 shadow 조사용으로 읽었으며 모델 호출은 0회였다.
 
 ## 실제 원문 shadow 조사
 

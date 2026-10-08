@@ -2,7 +2,10 @@
   "schema_version": 1,
   "diagram_type": "architecture",
   "meta": {
-    "title": "Tech Trend Curation & Anti-AI Blog Automator",
+    "title": "Historical pre-refactor: Tech Trend Curation & Anti-AI Blog Automator",
+    "status": "historical_pre_refactor",
+    "current_documentation": "architecture.md",
+    "historical_note": "Preserved pre-refactor diagram. Model labels, RAG descriptions and direct drafting/publication arrows do not describe the current evidence-led pipeline. PNG exports are historical too.",
     "quality_profile": "showcase",
     "views": [
       {
