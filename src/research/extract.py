@@ -25,11 +25,14 @@ def metric_scope(section: Section) -> tuple[str, ...]:
     """
     headings = tuple(part.strip().casefold() for part in section.title.split(" > "))
     for index in range(len(headings) - 1, -1, -1):
-        match = re.search(r"\b(?:experiment|study|trial)\s+"
+        match = re.search(r"\b(?:experiment|study|trial|실험|연구)\s+"
                           r"(?!conditions?\b|setup\b|results?\b|method\b|metrics?\b|limitations?\b|baseline\b)"
-                          r"[\w-]+", headings[index])
+                          r"(?!조건\b|설정\b|결과\b|방법\b|지표\b|한계\b|기준선\b)"
+                          r"[^\s:]+", headings[index])
         if match:
-            return (*headings[:index], match.group(0))
+            # Keep the complete owning heading. A parsed prefix can collapse
+            # 1.1/1.2, 1/1/1/2, or multiword experiment IDs into one scope.
+            return headings[:index + 1]
     return headings[:-1]
 
 

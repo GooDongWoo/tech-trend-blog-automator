@@ -143,6 +143,26 @@ def test_explicit_missing_setup_blocks_even_with_other_setup_prose_in_scope(tmp_
     assert "unsupported_metric_conditions:section:5" in brief.reasons
 
 
+@pytest.mark.parametrize("labels", [("Experiment 1.1", "Experiment 1.2"), ("Experiment 1/1", "Experiment 1/2"),
+                                    ("Experiment Alpha 1", "Experiment Alpha 2")])
+@pytest.mark.parametrize("manual", [False, True])
+def test_complete_numbered_experiment_ids_cannot_collapse(tmp_path, labels, manual):
+    topic, source = separate_experiments()
+    text = source.text.replace("Experiment A", labels[0]).replace("Experiment B", labels[1])
+    source = source.model_copy(update={"text": text, "sha256": hashlib.sha256(text.encode()).hexdigest()})
+    packet = build_packet(topic, [source], artifact_dir=tmp_path)
+    result = next(claim for claim in packet.claims if claim.text == "Throughput improves by 25%.")
+    if manual:
+        metric = MetricContext(value=25, unit="%", target="Throughput", baseline="the in-memory queue",
+            conditions="one worker with the same workload")
+        claims = tuple(claim.model_copy(update={"metric_context": metric}) if claim == result else claim for claim in packet.claims)
+        brief = build_brief(packet.model_copy(update={"claims": claims}), UserContext())
+        assert isinstance(brief, ResearchBlocked)
+        assert set(brief.reasons) >= {"unsupported_metric_baseline:section:5", "unsupported_metric_conditions:section:5"}
+    else:
+        assert result.metric_context is None
+
+
 def test_large_irrelevant_snapshot_stays_local_in_generation_and_repair(tmp_path, drafting_input):
     from src.editorial.draft import write_draft
     packet, _ = drafting_input
