@@ -89,6 +89,15 @@ _NUMERIC = re.compile(
     r"|\b(?:two|three|four|five|six|seven|eight|nine|ten|hundred)\s+(?:times|percent)\b"
     r"|\b(?:twice|doubled|tripled|halved|half)\b|(?:두|세|네|다섯|열)\s*배|반으로\s*줄", re.I)
 
+# Written quantities remain quantitative even when a fallible semantic reviewer
+# approves them. This detects forms, not values; no Korean number normalization
+# exists, so these forms cannot be certified by the deterministic metric layer.
+_KOREAN_QUANTITY = re.compile(
+    r"(?<![가-힣A-Za-z0-9])(?:[영일이삼사오육칠팔구십백천만억][영일이삼사오육칠팔구십백천만억조]*"
+    r"|한|두|세|네|다섯|여섯|일곱|여덟|아홉|열|스무|서른|마흔|쉰|예순|일흔|여든|아흔)"
+    r"\s*(?:퍼센트포인트|퍼센트|밀리초|초|분|시간|회|배|건|개|명|원|바이트|토큰)"
+    r"(?=$|[\s.,!?;:)]|은|는|이|가|을|를|로|으|에|만|씩|도|라|였|다|의|당)")
+
 
 def _clean(text):
     prose = re.sub(r"^\s*#{1,6}\s+", "", text)
@@ -143,7 +152,7 @@ def _has_quantity(text):
         return True
     prose = _IDENTIFIER.sub(" ", clean)
     prose = re.sub(r"^\s*\d+[.)]\s+", "", prose)  # List position, not outcome.
-    return bool(_NUMERIC.search(prose) or _NUMBER.search(prose))
+    return bool(_NUMERIC.search(prose) or _NUMBER.search(prose) or _KOREAN_QUANTITY.search(prose))
 
 
 def _source_text(sentence, evidence):
@@ -350,7 +359,8 @@ def validate_draft(text: DraftText, packet: ResearchPacket, brief: EditorialBrie
                             and float(found[0]) == value and len(_NUMBER.findall(prose)) == 1 and _attributed(sentence))
                     except ValueError:
                         pass
-                if mapped.kind == "inference" or not metrics or not (quoted_source or own_metric or reported or derived):
+                if (_KOREAN_QUANTITY.search(_clean(sentence)) or mapped.kind == "inference"
+                    or not metrics or not (quoted_source or own_metric or reported or derived)):
                     issue("unsupported_metric", sid, sentence, grounding=True)
                 else:
                     context_text = section.text.casefold()

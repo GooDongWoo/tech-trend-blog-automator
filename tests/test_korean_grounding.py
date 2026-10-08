@@ -56,6 +56,19 @@ def test_review_cannot_override_guards(drafting_input, sentence, code):
     assert code in {i.code for i in validate_draft(draft, packet, brief, grounding=review(draft, packet)).issues}
 
 
+@pytest.mark.parametrize('quantity', ['백 퍼센트', '백퍼센트', '세 밀리초', '세밀리초', '천 회', '천회', '구십구 퍼센트', '스무 회'])
+def test_supported_reviewer_cannot_waive_written_korean_quantity(drafting_input, quantity):
+    packet, brief = drafting_input
+    draft = korean(packet, brief)
+    sentence = f'문서는 요청 결과가 {quantity}라고 보고한다. [E1]({packet.sources[0].url})'
+    section = draft.sections[0]
+    section = section.model_copy(update={'text': sentence, 'claims': (section.claims[0].model_copy(update={'sentence': sentence}),)})
+    draft = draft.model_copy(update={'sections': (section, *draft.sections[1:])})
+    report = validate_draft(draft, packet, brief, grounding=review(draft, packet))
+    assert report.status == 'NEEDS_REVISION'
+    assert 'unsupported_metric' in {i.code for i in report.issues}
+
+
 def test_writer_attestation_rejected():
     from src.editorial.models import DraftPayload
     payload = response()
