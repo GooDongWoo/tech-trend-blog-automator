@@ -215,10 +215,17 @@ def build_brief(packet: ResearchPacket, user_context: UserContext) -> EditorialB
                 warnings.append(f"{field}_not_reported")
     first = mechanism[0]
     thesis = f"Source claim ({first.source_refs[0].url}): {first.text}"
+    # Keep the full packet locally; the brief carries only the claims actually
+    # chosen for its analysis, so an unrelated appendix is not mandatory input.
+    selected = [*mechanism, *comparison, *constraints, *reversal]
+    if study:
+        for field in ("dataset", "baseline", "metrics", "ablation", "limitations"):
+            selected.extend(getattr(study, field))
+    selected.extend(claim for claim, _ in eligible if claim.metric_context is not None)
     return EditorialBrief(topic_id=packet.topic_id, post_kind=kind, question=question,
         thesis=thesis, comparison=tuple(claim.text for claim in comparison),
         key_mechanism=first.text, adoption_constraints=tuple(claim.text for claim in constraints),
         decision_criteria=tuple(dict.fromkeys([*(claim.text for claim in constraints), *user_context.goals, *user_context.constraints])),
-        reversal_conditions=tuple(claim.text for claim in reversal), evidence=tuple(claim for claim, _ in eligible),
+        reversal_conditions=tuple(claim.text for claim in reversal), evidence=tuple(claim for claim, _ in eligible if claim in selected),
         source_authority=authority, study=study, warnings=tuple(dict.fromkeys(warnings)),
         user_context=user_context, policy_version=version)

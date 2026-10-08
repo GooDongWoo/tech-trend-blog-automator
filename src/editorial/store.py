@@ -140,6 +140,13 @@ class DraftStore:
         summary += "\n\n## Source provenance\n\n" + "\n".join(
             f"- [{source.title}]({source.url}) — {source.role}; SHA-256: {source.sha256}; locations: {', '.join(source.locations)}; error: {source.error}" for source in sources)
         summary += "\n\n## Validation\n\n```json\n" + json.dumps(validation, ensure_ascii=False, indent=2) + "\n```\n"
+        draft = result.get("draft")
+        if draft is not None:
+            # Telegram delivers this report before approval. Include every
+            # section, even one with no claims, and preserve uncited inferences.
+            mappings = [{"section_id": section.id, "claims": [claim.model_dump(mode="json") for claim in section.claims]}
+                        for section in draft.sections]
+            summary += "\n## Section-to-claim map\n\n```json\n" + json.dumps(mappings, ensure_ascii=False, indent=2) + "\n```\n"
         if evidence:
             summary += "\n## Evidence packet\n\n```json\n" + evidence.model_dump_json(indent=2) + "\n```\n"
         if result.get("brief"):
