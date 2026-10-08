@@ -24,9 +24,11 @@ def load_policy() -> tuple[str, str]:
     return match.group(1), text
 
 
-def _kind(material: str) -> str | None:
+def _kind(material: str, *, identity=False) -> str | None:
+    paper = (r"\b(?:research paper|benchmark report|benchmark study|dataset paper)\b|논문|벤치마크 보고서"
+             if identity else r"\b(?:research paper|benchmarks?|dataset|ablation)\b|논문|벤치마크")
     rules = (
-        ("paper", r"\b(?:research paper|benchmark|dataset|ablation)\b|논문|벤치마크"),
+        ("paper", paper),
         ("design_comparison", r"\b(?:design comparison|architecture comparison|trade-offs|tradeoffs)\b|설계 비교"),
         ("protocol", r"\b(?:protocol|standard|rfc|message flow|wire format)\b|프로토콜|표준"),
         ("tool", r"\b(?:library|tool|sdk|api|installation)\b|라이브러리|도구"),
@@ -34,6 +36,25 @@ def _kind(material: str) -> str | None:
     for kind, pattern in rules:
         if re.search(pattern, material, re.IGNORECASE):
             return kind
+    return None
+
+
+def _document_kind(sections) -> str | None:
+    """Use the opening identity and explicit usage structure before examples."""
+    opening = next((section for section in sections if section.title != "Document"), None)
+    if opening is not None:
+        declared = _kind(opening.title)
+        if declared:
+            return declared
+    for section in sections:
+        if section.title == "Document" or section is opening:
+            introduction = re.split(r"\n\s*\n", section.text, maxsplit=1)[0]
+            declared = _kind(introduction, identity=True)
+            if declared:
+                return declared
+    if any(section.text and re.search(r"\b(?:quickstart|getting started|installation|sdk|api)\b|빠른 시작|설치",
+                                     section.title, re.I) for section in sections):
+        return "tool"
     return None
 
 
@@ -147,6 +168,7 @@ def build_brief(packet: ResearchPacket, user_context: UserContext) -> EditorialB
         return blocked(["question_requires_one_sentence"])
     sections = {}
     material = []
+    document_kinds = []
     roles = {}
     try:
         for source in packet.sources:
@@ -154,16 +176,18 @@ def build_brief(packet: ResearchPacket, user_context: UserContext) -> EditorialB
                 continue
             url = canonical_topic_url(source.url)
             roles[url] = source.role
-            for section in extract_sections(source):
+            document_sections = extract_sections(source)
+            for section in document_sections:
                 sections[(url, section.location)] = section
             if source.role != "secondary":
-                material.append(source.title + "\n" + source.text)
+                material.append(source.title + "\n" + "\n".join(section.title + "\n" + section.text for section in document_sections))
+                document_kinds.append(_document_kind(document_sections))
     except ValueError:
         return blocked(["source_location_mapping_invalid"])
     # The document's stated type takes precedence over incidental examples:
     # a library README can contain a benchmark without becoming a paper.
     titles = "\n".join(source.title for source in packet.sources if source.role != "secondary" and source.kind != "run_log")
-    kind = _kind(titles) or _kind("\n".join(material))
+    kind = _kind(titles) or next((kind for kind in document_kinds if kind), None) or _kind("\n".join(material))
     if kind is None:
         return blocked(["missing_post_kind"])
     eligible, reasons = [], []

@@ -16,6 +16,61 @@ class Section:
     text: str
 
 
+def visible_markdown(content: str) -> str:
+    """Render embedded HTML presentation while retaining literal Markdown code.
+
+    Raw input bytes remain in the fetch snapshot. This view keeps located prose
+    and image descriptions, never layout attributes or invisible comments.
+    """
+    marker = "__EVIDENCE_LITERAL_CODE__"
+    while marker in content:
+        marker += "_"
+    literals = {}
+
+    def protect(text):
+        token = marker + str(len(literals)) + "__"
+        literals[token] = text
+        return token
+
+    parts, code, fence = [], [], None
+    for line in content.splitlines(keepends=True):
+        if fence is not None:
+            code.append(line)
+            if re.fullmatch(r" {0,3}" + re.escape(fence[0]) + "{" + str(len(fence)) + r",}\s*", line):
+                parts.append(protect("".join(code)))
+                code, fence = [], None
+        else:
+            opening = re.match(r"^ {0,3}(`{3,}|~{3,})", line)
+            if opening:
+                fence, code = opening.group(1), [line]
+            else:
+                parts.append(line)
+    if code:
+        parts.append(protect("".join(code)))
+    prepared = "".join(parts)
+    prepared = re.sub(r"(`+)(.+?)\1", lambda match: protect(match.group()), prepared, flags=re.S)
+    # Markdown autolinks are visible text, not HTML tags.
+    prepared = re.sub(r"<(?:https?://[^<>\s]+|[^<>\s]+@[^<>\s]+)>",
+                      lambda match: protect(match.group()), prepared)
+    soup = BeautifulSoup(prepared, "html.parser")
+    for comment in soup.find_all(string=lambda node: isinstance(node, Comment)):
+        comment.extract()
+    for tag in soup(["script", "style", "noscript"]):
+        tag.decompose()
+    for image in soup.find_all("img"):
+        alt = image.get("alt", "").strip()
+        image.replace_with(NavigableString("\n\n" + alt + "\n\n" if alt else ""))
+    for line_break in soup.find_all("br"):
+        line_break.replace_with(NavigableString("\n"))
+    for block in soup(["p", "div", "blockquote", "li", "pre", "h1", "h2", "h3", "h4", "h5", "h6", "summary"]):
+        block.insert_before(NavigableString("\n\n"))
+        block.insert_after(NavigableString("\n\n"))
+    visible = soup.get_text()
+    for token, literal in literals.items():
+        visible = visible.replace(token, literal)
+    return visible.strip()
+
+
 def metric_scope(section: Section) -> tuple[str, ...]:
     """Use preserved heading ancestry to bound a reported experiment.
 
@@ -52,6 +107,8 @@ def extract_sections(source: SourceRecord) -> list[Section]:
         heading = None if source.kind == "pdf" else re.match(r"^#{1,6} (.+)\n", block)
         title = heading.group(1) if heading else location
         text = block[heading.end():].strip() if heading else block.strip()
+        if source.kind in {"markdown", "text"}:
+            text = visible_markdown(text)
         result.append(Section(location, title, text))
     return result
 
@@ -116,7 +173,7 @@ def markdown_sections(content: str) -> tuple[str, list[Section]]:
 
     def flush():
         nonlocal fragments
-        text = "\n".join(fragments).strip()
+        text = visible_markdown("\n".join(fragments))
         if text or heading_seen:
             sections.append(Section(_location(len(sections) + 1, heading), heading, text))
         fragments = []
