@@ -6,15 +6,15 @@ import re
 
 from src.curator.matcher import CuratedTopic
 from src.editorial.models import EvidenceClaim, MetricContext, ResearchBlocked, ResearchPacket, SourceRecord, SourceRef, canonical_topic_url, stable_topic_id
-from src.research.extract import extract_sections
+from src.research.extract import extract_sections, metric_scope
 
 
 def _paragraphs(text: str) -> list[str]:
     return [part.strip() for part in re.split(r"\n\s*\n", text) if part.strip()]
 
 
-def _reported_metric(text, sections):
-    """Enrich only an unambiguous literal result in the same source snapshot.
+def _reported_metric(text, result_section, sections):
+    """Enrich only an unambiguous literal result in its own experiment scope.
 
     This small grammar handles explicit reported comparison/setup prose. It does
     not infer experimental details from arbitrary paragraphs, tables or numbers.
@@ -28,15 +28,19 @@ def _reported_metric(text, sections):
         return None
     phrases = {"baseline": set(), "conditions": set()}
     for section in sections:
+        if metric_scope(section) != metric_scope(result_section):
+            continue
         for paragraph in _paragraphs(section.text):
-            if re.search(r"\b(?:unknown|missing|unreported|unspecified|not reported|not documented)\b", paragraph, re.I):
-                continue
             for field, heading, pattern in (
                 ("baseline", r"\b(?:baseline|alternatives?|comparison)\b", r"(?:baseline\s*:\s*|compare with\s+)([^.!?\n]+)"),
                 ("conditions", r"\b(?:conditions?|experimental setup|settings|environment)\b",
                  r"(?:conditions?\s*:\s*|(?:throughput|latency|accuracy|memory use) measured on\s+)([^.!?\n]+)"),
             ):
                 if re.search(heading, section.title, re.I):
+                    # An explicit absent setup in this experiment cannot be
+                    # filled from other prose, even within the same scope.
+                    if re.search(r"\b(?:unknown|missing|unreported|unspecified|not reported|not documented)\b", paragraph, re.I):
+                        return None
                     phrases[field].update(match.group(1).strip() for match in re.finditer(pattern, paragraph, re.I))
     if any(len(values) != 1 for values in phrases.values()):
         return None
@@ -113,7 +117,7 @@ def build_packet(topic: CuratedTopic, sources: list[SourceRecord], *, artifact_d
             return _persist(ResearchBlocked(reasons=("partial_extraction",), sources=ordered), artifact_dir)
         for section in extracted:
             for paragraph in _paragraphs(section.text):
-                claims.append(EvidenceClaim(text=paragraph, kind="source_claim", metric_context=_reported_metric(paragraph, extracted), source_refs=(
+                claims.append(EvidenceClaim(text=paragraph, kind="source_claim", metric_context=_reported_metric(paragraph, section, extracted), source_refs=(
                     SourceRef(url=source.url, sha256=source.sha256, location=section.location),)))
     if not claims:
         return _persist(ResearchBlocked(reasons=("no_citable_text",), sources=ordered), artifact_dir)

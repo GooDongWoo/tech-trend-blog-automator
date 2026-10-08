@@ -10,7 +10,7 @@ from src.editorial.models import (
     ClaimKind, EditorialBrief, PaperStudy, ResearchBlocked, ResearchPacket,
     UserContext, canonical_topic_url,
 )
-from src.research.extract import extract_sections
+from src.research.extract import extract_sections, metric_scope
 
 POLICY_PATH = Path(__file__).with_name("policy.md")
 
@@ -107,18 +107,20 @@ def _metric_reasons(claim, sections, roles):
     if not any(_contains_phrase(section.title + "\n" + section.text, context.target)
                and not _documents_absence(section.text) for section in referenced):
         reasons.append(f"unsupported_metric_target:{location}")
-    urls = {ref.url for ref in claim.source_refs if roles.get(ref.url) != "secondary"}
+    scopes = {(ref.url, metric_scope(sections[(ref.url, ref.location)])) for ref in claim.source_refs
+              if (ref.url, ref.location) in sections and roles.get(ref.url) != "secondary"}
     context_sections = {
         "baseline": r"\b(?:baseline|alternatives?|compare|compared|comparison|against|versus)\b|기준선|비교|대안",
         "conditions": r"\b(?:conditions?|experimental setup|settings|environment|workloads?|hardware|workers?|batch)\b|실험 조건|환경|부하",
     }
     for field, cues in context_sections.items():
-        # Use the result's snapshots only: an unrelated paper or secondary
-        # discussion cannot supply this experiment's baseline/workload.
-        supported = any(_contains_phrase(section.text, getattr(context, field))
-                        and not _documents_absence(section.text)
-                        and re.search(cues, section.title + "\n" + section.text, re.IGNORECASE)
-                        for (url, _), section in sections.items() if url in urls)
+        # Same-document context is insufficient: an experiment cannot borrow a
+        # sibling's setup. Explicitly missing setup also blocks manual metadata.
+        scoped_sections = [section for (url, _), section in sections.items()
+                           if (url, metric_scope(section)) in scopes
+                           and re.search(cues, section.title + "\n" + section.text, re.IGNORECASE)]
+        supported = (not any(_documents_absence(section.text) for section in scoped_sections)
+                     and any(_contains_phrase(section.text, getattr(context, field)) for section in scoped_sections))
         if not supported:
             reasons.append(f"unsupported_metric_{field}:{location}")
     return reasons

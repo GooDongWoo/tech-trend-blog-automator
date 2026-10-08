@@ -16,6 +16,23 @@ class Section:
     text: str
 
 
+def metric_scope(section: Section) -> tuple[str, ...]:
+    """Use preserved heading ancestry to bound a reported experiment.
+
+    Named experiments own nested setup/results sections. Otherwise use the
+    immediate parent path, conservatively distinguishing sibling studies.
+    Flat explicit documents retain their single unnamed scope.
+    """
+    headings = tuple(part.strip().casefold() for part in section.title.split(" > "))
+    for index in range(len(headings) - 1, -1, -1):
+        match = re.search(r"\b(?:experiment|study|trial)\s+"
+                          r"(?!conditions?\b|setup\b|results?\b|method\b|metrics?\b|limitations?\b|baseline\b)"
+                          r"[\w-]+", headings[index])
+        if match:
+            return (*headings[:index], match.group(0))
+    return headings[:-1]
+
+
 def extract_sections(source: SourceRecord) -> list[Section]:
     """Form feed is the snapshot's lossless section/page boundary.
 

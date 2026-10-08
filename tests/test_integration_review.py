@@ -35,8 +35,12 @@ def research_input(*, result="Throughput improves by 25%.", conditions="one work
     return topic, source
 
 
-def test_runtime_packet_enriches_reported_metric_before_writer_brief(tmp_path, monkeypatch):
+@pytest.mark.parametrize("experiment", [None, "Experiment B"])
+def test_runtime_packet_enriches_reported_metric_before_writer_brief(tmp_path, monkeypatch, experiment):
     topic, source = research_input()
+    if experiment:
+        text = re.sub(r"(?m)^# ", f"# {experiment} > ", source.text)
+        source = source.model_copy(update={"text": text, "sha256": hashlib.sha256(text.encode()).hexdigest()})
     monkeypatch.setattr("src.writer.deep_researcher.fetch_source", lambda *args, **kwargs: source)
     payload = json.loads(json.dumps(response()).replace("https://example.invalid/pageindex", source.url))
     metric = f'원문은 “Throughput improves by 25%.”라고 설명한다. [E6]({source.url})'
@@ -85,6 +89,58 @@ def test_enriched_runtime_metric_still_rejects_mismatched_metadata(tmp_path):
     brief = build_brief(packet, UserContext())
     assert isinstance(brief, ResearchBlocked)
     assert "metric_context_mismatch:section:5" in brief.reasons
+
+
+def separate_experiments(*, explicit_absence=False, same_scope=False):
+    topic, source = research_input()
+    blocks = source.text.split("\f")
+    for index in (1, 4):
+        blocks[index] = blocks[index].replace("# ", "# Experiment A > ", 1)
+    blocks[5] = blocks[5].replace("# ", "# Experiment A > " if same_scope else "# Experiment B > ", 1)
+    locations = source.locations
+    if explicit_absence:
+        scope = "Experiment A" if same_scope else "Experiment B"
+        blocks.append(f"# {scope} > Experimental conditions\nConditions are not reported.")
+        locations = (*locations, "section:6")
+    text = "\f".join(blocks)
+    source = source.model_copy(update={"text": text, "locations": locations, "sha256": hashlib.sha256(text.encode()).hexdigest()})
+    return topic, source
+
+
+@pytest.mark.parametrize("explicit_absence", [False, True])
+def test_runtime_result_cannot_borrow_another_experiments_setup(tmp_path, explicit_absence):
+    topic, source = separate_experiments(explicit_absence=explicit_absence)
+    packet = build_packet(topic, [source], artifact_dir=tmp_path)
+    result = next(claim for claim in packet.claims if claim.text == "Throughput improves by 25%.")
+    assert result.metric_context is None
+    brief = build_brief(packet, UserContext())
+    assert isinstance(brief, ResearchBlocked)
+    assert "missing_metric_context:section:5" in brief.reasons
+
+
+def test_manually_attached_context_cannot_cross_experiment_boundary(tmp_path):
+    topic, source = separate_experiments(explicit_absence=True)
+    packet = build_packet(topic, [source], artifact_dir=tmp_path)
+    metric = MetricContext(value=25, unit="%", target="Throughput", baseline="the in-memory queue",
+        conditions="one worker with the same workload")
+    claims = tuple(claim.model_copy(update={"metric_context": metric}) if claim.text == "Throughput improves by 25%." else claim
+                   for claim in packet.claims)
+    brief = build_brief(packet.model_copy(update={"claims": claims}), UserContext())
+    assert isinstance(brief, ResearchBlocked)
+    assert set(brief.reasons) >= {"unsupported_metric_baseline:section:5", "unsupported_metric_conditions:section:5"}
+
+
+def test_explicit_missing_setup_blocks_even_with_other_setup_prose_in_scope(tmp_path):
+    topic, source = separate_experiments(explicit_absence=True, same_scope=True)
+    packet = build_packet(topic, [source], artifact_dir=tmp_path)
+    result = next(claim for claim in packet.claims if claim.text == "Throughput improves by 25%.")
+    assert result.metric_context is None
+    metric = MetricContext(value=25, unit="%", target="Throughput", baseline="the in-memory queue",
+        conditions="one worker with the same workload")
+    claims = tuple(claim.model_copy(update={"metric_context": metric}) if claim == result else claim for claim in packet.claims)
+    brief = build_brief(packet.model_copy(update={"claims": claims}), UserContext())
+    assert isinstance(brief, ResearchBlocked)
+    assert "unsupported_metric_conditions:section:5" in brief.reasons
 
 
 def test_large_irrelevant_snapshot_stays_local_in_generation_and_repair(tmp_path, drafting_input):
