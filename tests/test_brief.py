@@ -89,6 +89,39 @@ def test_empty_claims_and_missing_mechanism_are_missing_facts():
     assert result.packet == research
 
 
+@pytest.mark.parametrize("missing", [None, "mechanism", "constraint", "reversal"])
+def test_paper_methodology_and_explicit_sampling_boundary(missing):
+    sections = [
+        ("Methodology", "Only the conditioning skill changes."),
+        ("Comparison", "Rollout evaluation is the alternative baseline."),
+        ("Reference sampling", "We retain only trajectories with both reference sets nonempty."),
+        ("Analysis", "This proxy does not guarantee improvement for every proposal."),
+    ]
+    if missing is not None:
+        index = {"mechanism": 0, "constraint": 2, "reversal": 3}[missing]
+        sections[index] = (sections[index][0], "This information is not reported.")
+    text = "\f".join(f"# {heading}\n{body}" for heading, body in sections)
+    source = packet("paper").sources[0].model_copy(update={
+        "text": text, "sha256": hashlib.sha256(text.encode()).hexdigest(),
+        "locations": tuple(f"section:{i}" for i in range(len(sections))),
+    })
+    claims = tuple(EvidenceClaim(text=body, kind="source_claim", source_refs=(
+        SourceRef(url=source.url, sha256=source.sha256, location=source.locations[i]),))
+        for i, (_, body) in enumerate(sections))
+    research = packet("paper").model_copy(update={"sources": (source,), "claims": claims})
+    result = builder()(research, UserContext())
+    if missing is None:
+        assert isinstance(result, EditorialBrief)
+        assert result.key_mechanism == sections[0][1]
+        assert sections[2][1] in result.adoption_constraints
+        assert sections[3][1] in result.reversal_conditions
+    else:
+        assert isinstance(result, ResearchBlocked)
+        code = {"mechanism": "missing_key_mechanism", "constraint": "missing_adoption_constraints",
+                "reversal": "missing_reversal_condition"}[missing]
+        assert code in result.reasons
+
+
 def test_proposed_thesis_not_present_in_source_is_rejected():
     research = packet()
     invented = research.claims[0].model_copy(update={"text": "I deployed it and eliminated all outages."})
@@ -239,3 +272,21 @@ def test_reported_unit_without_space_keeps_its_correct_context():
     result = builder()(research, UserContext())
     assert isinstance(result, EditorialBrief)
     assert result.evidence[-1].metric_context.unit == "milliseconds"
+
+
+@pytest.mark.parametrize("setup_cue", ["ExperimentalSetup", "Setting"])
+def test_reported_metric_accepts_pdf_setup_and_table_setting_cues(setup_cue):
+    from src.editorial.models import MetricContext
+    research = packet("paper", metric=True)
+    original = "Throughput measured on one worker with the same workload."
+    setup = f"{setup_cue}: QwenBackbone."
+    source = research.sources[0].model_copy(update={"text": research.sources[0].text
+        .replace("Metrics and experimental conditions", "Configuration")
+        .replace(original, setup)})
+    setup_claim = research.claims[-2].model_copy(update={"text": setup})
+    result_claim = research.claims[-1].model_copy(update={"metric_context": MetricContext(
+        value=25, unit="%", target="throughput", baseline="in-memory queue",
+        conditions="QwenBackbone")})
+    research = research.model_copy(update={"sources": (source,),
+        "claims": (*research.claims[:-2], setup_claim, result_claim)})
+    assert isinstance(builder()(research, UserContext()), EditorialBrief)
