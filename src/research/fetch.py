@@ -3,12 +3,36 @@ from datetime import datetime, timezone
 import hashlib
 from pathlib import Path
 import re
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urljoin
 
 import httpx
 
 from src.editorial.models import SourceRecord, canonical_topic_url
 from src.research.extract import html_sections, markdown_sections, pdf_sections, snapshot_text
+from bs4 import BeautifulSoup
+
+
+def inspected_links(content: str, base_url: str, kind: str) -> tuple[str, ...]:
+    """Only actual document links; never guess a repo or paper identifier."""
+    if kind == "html":
+        candidates = [a.get("href", "") for a in BeautifulSoup(content, "html.parser").find_all("a")]
+    else:
+        candidates = re.findall(r"https?://[^\s<>\]\)\"]+", content)
+    links = []
+    identity = re.search(r"/(?:papers|abs|pdf|html)/(\d{4}\.\d{4,5})", urlsplit(base_url).path)
+    for candidate in candidates:
+        try:
+            url = canonical_topic_url(urljoin(base_url, candidate))
+        except ValueError:
+            continue
+        parts = urlsplit(url)
+        linked_id = re.search(r"/(?:abs|pdf|html)/(\d{4}\.\d{4,5})", parts.path)
+        if identity and linked_id and identity[1] != linked_id[1]:
+            continue
+        if (parts.hostname in {"arxiv.org", "www.arxiv.org"} and re.match(r"/(?:abs|pdf|html)/", parts.path)
+            or parts.hostname == "github.com" and re.fullmatch(r"/[^/]+/[^/]+/?", parts.path)):
+            links.append(url)
+    return tuple(dict.fromkeys(links))
 
 
 def fetch_source(url: str, *, snapshot_dir: Path | str = Path("temp/research/sources")) -> SourceRecord:
@@ -46,6 +70,7 @@ def fetch_source(url: str, *, snapshot_dir: Path | str = Path("temp/research/sou
             extracted, error, diagnostics = pdf_sections(body)
             data.update(text=snapshot_text(extracted, "pdf"), locations=tuple(item.location for item in extracted),
                         error=error, diagnostics=diagnostics)
+            data["links"] = inspected_links(data["text"], data["final_url"], "pdf")
         else:
             if data["kind"] == "html":
                 title, extracted = html_sections(response.text)
@@ -54,6 +79,7 @@ def fetch_source(url: str, *, snapshot_dir: Path | str = Path("temp/research/sou
             title = title.strip() or original_url
             data.update(title=title, text=snapshot_text(extracted, data["kind"]),
                         locations=tuple(item.location for item in extracted))
+            data["links"] = inspected_links(response.text, data["final_url"], data["kind"])
             blocked_title = re.search(r"^(access denied|just a moment|attention required|robot check)", title, re.I)
             blocked_body = re.search(r"verify (?:that )?you are human|enable javascript and cookies to continue", data["text"], re.I)
             if blocked_title or blocked_body:
@@ -64,6 +90,8 @@ def fetch_source(url: str, *, snapshot_dir: Path | str = Path("temp/research/sou
         data.update(error="fetch_failed", diagnostics=(type(error).__name__,))
     except (ValueError, UnicodeError) as error:
         data.update(error="extraction_failed", diagnostics=(type(error).__name__,))
+    if urlsplit(data["final_url"]).hostname in {"arxiv.org", "www.arxiv.org"}:
+        data["role"] = "primary"
     source = SourceRecord(**data)
     directory = Path(snapshot_dir)
     identity = hashlib.sha256(f"{original_url}\n{source.sha256}\n{fetched_at.isoformat()}".encode()).hexdigest()

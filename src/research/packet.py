@@ -6,7 +6,39 @@ import re
 
 from src.curator.matcher import CuratedTopic
 from src.editorial.models import EvidenceClaim, MetricContext, ResearchBlocked, ResearchPacket, SourceRecord, SourceRef, canonical_topic_url, stable_topic_id
-from src.research.extract import extract_sections, metric_scope
+from src.research.extract import extract_sections, metric_scope, verify_metric_context
+
+
+def select_proposed_evidence(packet: ResearchPacket, proposals: dict) -> ResearchPacket:
+    """Resolve model proposals into literal located claims, rejecting any miss.
+
+    An extraction model cannot declare its own evidence verified. Complete raw
+    sources remain attached and omitted spans are explicitly acknowledged.
+    """
+    if set(proposals) != {"claims", "gaps"} or not proposals["claims"] or len(proposals["claims"]) > 40:
+        raise ValueError("invalid extraction envelope")
+    claims = []
+    for proposal in proposals["claims"]:
+        if set(proposal) - {"url", "location", "text", "metric_context"}:
+            raise ValueError("unsupported extraction fields")
+        source = next(s for s in packet.sources if s.url == proposal["url"] and not s.error)
+        owners = [s for s in extract_sections(source) if (s.location == proposal["location"]
+            or s.location.split('#')[0] == proposal["location"]) and proposal["text"] in s.text]
+        if len(owners) != 1 or not proposal["text"].strip():
+            raise ValueError("unlocated proposal")
+        owner = owners[0]
+        context = proposal.get("metric_context")
+        if context:
+            if not verify_metric_context(source, owner.location, proposal["text"], **context):
+                raise ValueError("unverified metric context")
+            scoped = [s for s in extract_sections(source) if metric_scope(s) == metric_scope(owner)]
+            refs = tuple(SourceRef(url=source.url, sha256=source.sha256, location=s.location)
+                for s in scoped if any(context[field] in s.text for field in ("baseline", "conditions", "target")))
+            context = MetricContext(**context, context_refs=refs)
+        claims.append(EvidenceClaim(text=proposal["text"], kind="source_claim", metric_context=context,
+            source_refs=(SourceRef(url=source.url, sha256=source.sha256, location=owner.location),)))
+    return packet.model_copy(update={"claims": tuple(claims), "gaps": tuple(dict.fromkeys(
+        (*packet.gaps, "evidence_selection_omits_unselected_spans", *proposals["gaps"])))})
 
 
 def _paragraphs(text: str) -> list[str]:
@@ -184,6 +216,7 @@ def select_context(packet: ResearchPacket, *, max_chars: int = 12000, required_c
 
         def render(keys):
             refs = [ref for key in keys for ref in catalog[key]["source_refs"]]
+            refs.extend(ref for key in keys for ref in (catalog[key].get("metric_context") or {}).get("context_refs", []))
             sources = []
             for source in packet.sources:
                 locations = sorted({ref["location"] for ref in refs if ref["url"] == source.url})

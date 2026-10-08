@@ -103,7 +103,28 @@ def extract_sections(source: SourceRecord) -> list[Section]:
     if len(blocks) != len(source.locations):
         raise ValueError("source location mapping does not match extracted blocks")
     result = []
+    pdf_headings = []
     for location, block in zip(source.locations, blocks):
+        if source.kind == "pdf":
+            # Keep original page locations, while giving each literal span its
+            # section ancestry. No text or raw snapshot bytes are rewritten.
+            heading_pattern = r"(?m)^((?:\d+(?:\.\d+)*|[A-Z](?:\.\d+)*) )([A-Z][A-Z –—\-]+)\s*$"
+            cursor = 0
+            title = " > ".join(t for _, t in pdf_headings) or location
+            for match in re.finditer(heading_pattern, block):
+                if block[cursor:match.start()].strip():
+                    result.append(Section(location, title, block[cursor:match.start()].strip()))
+                identifier = match[1].strip()
+                level = identifier.count('.') + 1
+                title = _heading_context(pdf_headings, level, match[0].strip())
+                cursor = match.end()
+            if block[cursor:].strip():
+                result.append(Section(location, title, block[cursor:].strip()))
+            page_sections = [s for s in result if s.location == location]
+            if len(page_sections) > 1:
+                for index, section in enumerate(page_sections, 1):
+                    result[result.index(section)] = Section(f"{location}#section:{index}", section.title, section.text)
+            continue
         heading = None if source.kind == "pdf" else re.match(r"^#{1,6} (.+)\n", block)
         title = heading.group(1) if heading else location
         text = block[heading.end():].strip() if heading else block.strip()
@@ -111,6 +132,38 @@ def extract_sections(source: SourceRecord) -> list[Section]:
             text = visible_markdown(text)
         result.append(Section(location, title, text))
     return result
+
+
+def verify_located_excerpt(source: SourceRecord, location: str, text: str) -> bool:
+    """Literal text must occur at the asserted snapshot page/section."""
+    return bool(text.strip()) and any((s.location == location or s.location.split('#')[0] == location) and text in s.text
+                                      for s in extract_sections(source))
+
+
+def verify_metric_context(source: SourceRecord, location: str, text: str, *,
+                          baseline: str, conditions: str, target: str,
+                          value: float, unit: str) -> bool:
+    """Verify a single literal outcome and same-study context, never truth."""
+    sections = extract_sections(source)
+    owners = [s for s in sections if (s.location == location or s.location.split('#')[0] == location) and text in s.text]
+    if len(owners) != 1:
+        return False
+    outcome = list(re.finditer(r"(?<![\w.])([-+]?\d+(?:\.\d+)?)\s*(%|percent\b|ms\b|seconds?\b|tokens/s\b|x\b)", text, re.I))
+    if len(outcome) != 1 or float(outcome[0][1]) != value or outcome[0][2].casefold() != unit.casefold():
+        return False
+    if target not in text:
+        return False
+    # Dataset names explicitly attached to outcomes delimit shared setup prose.
+    # A different named dataset's split cannot be borrowed just because both
+    # benchmarks appear beneath a common Experiments heading.
+    datasets = set(re.findall(r"\b(?:on|for) ([A-Z][A-Za-z0-9_-]+)", source.text))
+    outcome_datasets = {name for name in datasets if re.search(r"\b" + re.escape(name) + r"\b", text)}
+    condition_datasets = {name for name in datasets if re.search(r"\b" + re.escape(name) + r"\b", conditions)}
+    if outcome_datasets and condition_datasets and not outcome_datasets & condition_datasets:
+        return False
+    scoped = [s for s in sections if metric_scope(s) == metric_scope(owners[0])]
+    return all(phrase.strip() and any(phrase in s.text for s in scoped)
+               for phrase in (baseline, conditions, target))
 
 
 def _location(index: int, title: str, anchor: str | None = None) -> str:

@@ -22,7 +22,7 @@ class BlogWriter:
         self.blog_repo_path = blog_repo_path or settings.blog_repo_path
         self.posts_dir = self.blog_repo_path / "_posts"  # Compatibility path only.
         self.artifact_dir = artifact_dir or Path("temp/drafts")
-        self.researcher = DeepResearcher()
+        self.researcher = DeepResearcher(self.artifact_dir / "research", model=ModelClient())
         self.llm = llm or self
         self.media_catalog = media_catalog
 

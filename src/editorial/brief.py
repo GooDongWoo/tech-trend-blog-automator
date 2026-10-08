@@ -132,7 +132,7 @@ def _metric_reasons(claim, sections, roles):
               if (ref.url, ref.location) in sections and roles.get(ref.url) != "secondary"}
     context_sections = {
         "baseline": r"\b(?:baseline|alternatives?|compare|compared|comparison|against|versus)\b|기준선|비교|대안",
-        "conditions": r"\b(?:conditions?|experimental\s*setup|settings?|environment|workloads?|hardware|workers?|batch)\b|실험 조건|환경|부하",
+        "conditions": r"\b(?:conditions?|experimental\s*setup|experimentalsetup|settings?|environment|workloads?|hardware|workers?|batch)\b|실험 조건|환경|부하",
     }
     for field, cues in context_sections.items():
         # Same-document context is insufficient: an experiment cannot borrow a
@@ -219,7 +219,7 @@ def build_brief(packet: ResearchPacket, user_context: UserContext) -> EditorialB
                      if not _documents_absence(claim.text)
                      and re.search(pattern, heading + "\n" + claim.text, re.IGNORECASE))
 
-    mechanism = select(r"\b(?:mechanism|method|methodology|api|message flow|wire format)\b|작동 원리|방법|메시지 흐름")
+    mechanism = select(r"\b(?:mechanism|method|methodology|api|message flow|wire format|jointpolicy|co-evolution)\b|작동 원리|방법|메시지 흐름")
     comparison = select(r"\b(?:baseline|alternative|compare|comparison)\b|대안|비교")
     constraints = select(r"\b(?:constraints|requirements|compatibility|limitations|requires|retain only)\b|제약|요구사항|호환성|한계")
     reversal = select(r"\b(?:unsuitable|unless|cannot|failure|fails|selection boundary|does not guarantee)\b|부적합|실패|사용할 수 없")
@@ -233,9 +233,9 @@ def build_brief(packet: ResearchPacket, user_context: UserContext) -> EditorialB
         warnings.append("primary_source_authority_unconfirmed")
     study = None
     if kind == "paper":
-        study = PaperStudy(dataset=select(r"\bdataset\b|데이터셋"), baseline=comparison,
-            metrics=select(r"\bmetrics?\b|실험 조건|측정 지표"), ablation=select(r"\bablation\b|절제 실험"),
-            limitations=select(r"\blimitations?\b|한계"))
+        study = PaperStudy(dataset=select(r"\b(?:datasets?|benchmarks?)\b|데이터셋"), baseline=comparison,
+            metrics=select(r"\b(?:metrics?|experimental\s*setup|experimentalsetup|success rate|success on|task score)\b|실험 조건|측정 지표"), ablation=select(r"\bablation\b|절제 실험"),
+            limitations=select(r"\blimitations?\b|does not guarantee|한계"))
         for field in ("dataset", "baseline", "metrics", "ablation", "limitations"):
             if not getattr(study, field):
                 warnings.append(f"{field}_not_reported")

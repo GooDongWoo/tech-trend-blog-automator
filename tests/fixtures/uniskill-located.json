@@ -1,0 +1,33 @@
+{
+  "provenance": {
+    "paper": "https://arxiv.org/pdf/2610.10164v1",
+    "sha256": "85ca88f3d4029c33347e29f6efdeeb4b4c318ad70720ee6bcb86dc82145dbd68",
+    "note": "Minimal verbatim excerpts from saved 24-page first-trial capture; not a full paper or execution log. Page 8 table caption retains three independent training runs, uncertainty and exclusion of purchase-completion rate."
+  },
+  "excerpts": [
+    {
+      "location": "page:4",
+      "text": "Accordingly, we retain only trajectories for which both reference sets remain nonempty after excluding\nthe proposer inputs, with all trajectories sharing the same task, retrieved skills, and current actor."
+    },
+    {
+      "location": "page:6",
+      "text": "3.4 JOINTPOLICY–SKILLCO-EVOLUTION\nAt each training step, actor rollouts and skill proposals are generated from the same pre-update policy\nand skillbank snapshot. We jointly optimize the shared policy by minimizing\nLUniSkill =L actor +λ propLproposer,(16)\nwhereλprop weights the proposer loss. A positive Ralign indicates a wider action log-likelihood\ngap between successful and failed references, even if likelihoods decrease on both. For skillbank\nupdates, however, we adopt a stricter criterion by additionally requiring ∆+ >0 to avoid storing\nskills that reduce the average action log-likelihood on the successful reference. After the policy\nupdate, we apply ADDand UPDATEproposals that pass both critic checks and satisfy ∆+ >0 and\nRalign >0 . For each UPDATEtarget, we apply the eligible proposal with the highest Ralign. The\ncomplete training procedure is summarized in Algorithm 1 in Appendix C.\n4 EXPERIMENTS\n4.1 EXPERIMENTALSETUP\nBenchmarks.We evaluate UniSkill on ALFWorld (Shridhar et al., 2021) and WebShop (Yao et al.,\n2022), two multi-turn interactive benchmarks. ALFWorld requires agents to complete household\ntasks through text-based navigation and object manipulation. We report per-task-type and overall\nsuccess rates. WebShop requires an agent to search, inspect, and purchase products that satisfy a\nnatural-language instruction in a simulated e-commerce website. We report the mean normalized task\nscore, scaled to 100, and the success rate.\nBaselines and Implementation Details.We compare UniSkill with training-free, RL-only, and\nmemory- or skill-augmented RL baselines. All compared methods use Qwen2.5-7B-Instruct (Yang\net al., 2024) as the base model. Unless otherwise specified, the baseline results in Table 1 are\ndrawn from prior work (Feng et al., 2025; Shi et al., 2026), where they were obtained using the\nreleasedVERL-AGENTimplementations (Feng et al., 2025) under a common evaluation protocol. We\nevaluate UniSkill using the same protocol, including ALFWorld’s officialvalid seen split, task-\nsampling procedure, and success criterion. Complementary RL results are quoted from its original"
+    },
+    {
+      "location": "page:7",
+      "text": "4.2 PERFORMANCE ONALFWORLD ANDWEBSHOP\nAs shown in Table 1, UniSkill achieves strong performance on both benchmarks, reaching 98.4%\nsuccess on ALFWorld and a task score of 90.5 with 84.7% success on WebShop."
+    },
+    {
+      "location": "page:8",
+      "text": "Table 1: Results on ALFWorld and WebShop. We report success rates (%) and normalized WebShop\nscores. UniSkill reports mean ± std over three independent training runs. Best and second-best\nresults are bold and underlined.† denotes purchase-completion rate, which is excluded from ranking."
+    },
+    {
+      "location": "page:8",
+      "text": "5 ANALYSIS\nIn this section, we present an empirical analysis of UniSkill by addressing the following questions:\nQ1: How Does Joint Actor and Skill Proposer Learning Contribute to Performance?To\nassess the contribution of joint learning, we compare UniSkill with three ablation variants in Table 2.\nActor Only trains the actor with a frozen skill proposer, whereasSkill Proposer Onlytrains the\nproposer with a frozen actor. In both variants, the frozen model retains the initial Qwen2.5-7B-\nInstruct weights.UniSkill (w/o Ralign reward)removes Ralign only from the proposer reward. All\nvariants start from an empty skillbank and retain skill retrieval during training, with identical critic\nchecks and skillbank update rules."
+    },
+    {
+      "location": "page:9",
+      "text": "Thus,Ralign is informative in aggregate among the sampled proposals\nbut does not guarantee improvement for every proposal."
+    }
+  ]
+}

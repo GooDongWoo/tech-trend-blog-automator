@@ -70,6 +70,12 @@ class SourceRecord(Contract):
     diagnostics: tuple[NonEmpty, ...] = ()
     snapshot_path: Path | None = None
     role: Literal["primary", "secondary", "unknown"] = "unknown"
+    links: tuple[NonEmpty, ...] = ()
+
+    @field_validator("links")
+    @classmethod
+    def valid_links(cls, value):
+        return tuple(dict.fromkeys(canonical_topic_url(url) for url in value))
 
     @field_validator("fetched_at")
     @classmethod
@@ -109,6 +115,7 @@ class MetricContext(Contract):
     target: NonEmpty
     baseline: NonEmpty
     conditions: NonEmpty
+    context_refs: tuple[SourceRef, ...] = ()
     run_record: SourceRecord | None = None
 
     @field_validator("run_record")
@@ -163,10 +170,14 @@ class ResearchPacket(Contract):
         if not any(source.error is None for source in self.sources):
             raise ValueError("research packet requires an inspectable source")
         for claim in self.claims:
-            for ref in claim.source_refs:
+            for ref in (*claim.source_refs, *(claim.metric_context.context_refs if claim.metric_context else ())):
                 source = snapshots.get(ref.url)
-                if source is None or source.error is not None or ref.sha256 != source.sha256 or ref.location not in source.locations:
+                if source is None or source.error is not None or ref.sha256 != source.sha256:
                     raise ValueError("reference does not match an inspectable source snapshot/location")
+                if ref.location not in source.locations:
+                    from src.research.extract import extract_sections
+                    if ref.location not in {section.location for section in extract_sections(source)}:
+                        raise ValueError("reference does not match an inspectable source snapshot/location")
         return self
 
 
