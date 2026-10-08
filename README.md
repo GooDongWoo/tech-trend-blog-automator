@@ -4,6 +4,8 @@ Collect and curate technical topics, then create Korean developer drafts with an
 
 **Telegram runs in shadow mode by default.** It delivers complete draft/report attachments, source links, exact hashes and revision controls. A reviewer can approve a specific draft; publication remains blocked until a separate quality gate and operator cutover decision. No production cutover has been performed.
 
+Current implementation, verification boundaries and pending quality work: [refactor status](docs/refactor-status.md).
+
 ## Draft and publication workflow
 
 1. Collect topics from GeekNews, GitHub, Hacker News, Reddit, Hugging Face and arXiv, then curate using available user context. Vault notes describe interests and constraints; they do not prove firsthand experience.
