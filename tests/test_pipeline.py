@@ -225,7 +225,7 @@ def test_selection_and_blocked_review_never_offer_approval(tmp_path, drafting_in
     pipeline, topic_id = setup_pipeline(tmp_path, drafting_input, payload={})
     app = TrendBotApp(pipeline=pipeline)
     app.current_topics = {1: pipeline.store.topic(topic_id)}
-    query = SimpleNamespace(data="select_1", answer=AsyncMock(), edit_message_text=AsyncMock(),
+    query = SimpleNamespace(data=api().topic_callback(topic_id), answer=AsyncMock(), edit_message_text=AsyncMock(),
         message=SimpleNamespace(chat_id=7), from_user=SimpleNamespace(id=7))
     bot = SimpleNamespace(send_message=AsyncMock(), send_document=AsyncMock())
     asyncio.run(app.handle_callback(SimpleNamespace(callback_query=query), SimpleNamespace(bot=bot)))

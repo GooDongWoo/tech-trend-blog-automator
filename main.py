@@ -20,7 +20,7 @@ from src.editorial.pipeline import EditorialPipeline
 from src.bot.telegram_bot import TrendBotApp
 
 
-async def test_pipeline(*, output_root=None, topics=None, writer=None):
+async def test_pipeline(*, output_root=None, topics=None, writer=None, user_context=None):
     """Read external sources and retain review artifacts in a temporary local root.
 
     Collection/research may use configured external APIs; publication and Vault
@@ -31,11 +31,13 @@ async def test_pipeline(*, output_root=None, topics=None, writer=None):
     print(f"Dry-run review output: {pipeline.store.root}")
     if topics is None:
         profile = InterestProfiler().build_profile(days=7)
+        if user_context is None:
+            user_context = profile.user_context
         items = await TrendOrchestrator().collect_all(limit_per_source=4)
         topics = TrendMatcher().curate_top_5(profile, items)[:1]
     artifacts = []
     for topic in topics:
-        artifact = await pipeline.generate(pipeline.register_topic(topic))
+        artifact = await pipeline.generate(pipeline.register_topic(topic, user_context=user_context))
         artifacts.append(artifact)
         print(f"{artifact.status.value}: {artifact.content_path}")
         print(f"Review report: {artifact.content_path.parent / 'review.md'}")

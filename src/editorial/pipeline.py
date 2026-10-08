@@ -15,6 +15,17 @@ def approval_callback(artifact: DraftArtifact) -> str:
     return f"a:{artifact.id}:{encoded}"
 
 
+def topic_callback(topic_id: str) -> str:
+    encoded = base64.urlsafe_b64encode(bytes.fromhex(topic_id)).decode().rstrip("=")
+    return "s:" + encoded
+
+
+def decode_topic_callback(data: str) -> str:
+    if not re.fullmatch(r"s:[A-Za-z0-9_-]{43}", data):
+        raise ValueError("invalid topic selection callback")
+    return base64.urlsafe_b64decode(data[2:] + "=").hex()
+
+
 def decode_callback(data: str) -> tuple[str, str]:
     if not re.fullmatch(r"a:[A-Za-z0-9_-]{16}:[A-Za-z0-9_-]{43}", data):
         raise ValueError("invalid or obsolete approval callback")
@@ -27,17 +38,22 @@ class EditorialPipeline:
         self.store = DraftStore(output_root or Path(__file__).resolve().parents[2] / "temp" / "review")
         self.writer = writer or BlogWriter()
 
-    def register_topic(self, topic) -> str:
-        return self.store.register_topic(topic)
+    def register_topic(self, topic, *, user_context=None) -> str:
+        return self.store.register_topic(topic, user_context=user_context)
 
     async def generate(self, topic_id: str) -> DraftArtifact:
-        topic = self.store.topic(topic_id)
         identity = self.store.begin(topic_id)
         writer = copy.copy(self.writer)
         writer.researcher = copy.copy(self.writer.researcher)
         writer.researcher.artifact_dir = self.store.directory(identity) / "working" / "research"
         try:
-            result = await writer.generate_post(topic, persist_artifacts=False)
+            user_context, reasons = self.store.prepare_context(topic_id, identity)
+            if reasons:
+                result = {"status": "NEEDS_RESEARCH", "reasons": list(reasons), "user_context": user_context}
+            else:
+                topic = self.store.topic(topic_id)
+                result = await writer.generate_post(topic, user_context=user_context, persist_artifacts=False)
+                result["user_context"] = user_context
         except Exception as error:
             result = {"status": "NEEDS_RESEARCH", "reasons": ["generation_failed", type(error).__name__]}
         return self.store.persist(identity, topic_id, result)

@@ -54,11 +54,11 @@ topics = [
     )
 ]
 
-async def main(*, output_root=None, writer=None, selected_topics=None):
+async def main(*, output_root=None, writer=None, selected_topics=None, user_context=None):
     pipeline = EditorialPipeline(output_root, writer=writer)
     artifacts = []
     for topic in topics if selected_topics is None else selected_topics:
-        artifact = await pipeline.generate(pipeline.register_topic(topic))
+        artifact = await pipeline.generate(pipeline.register_topic(topic, user_context=user_context))
         artifacts.append(artifact)
         print(f"{artifact.status.value}: {topic.title}")
         print(f"Full draft: {artifact.content_path}")

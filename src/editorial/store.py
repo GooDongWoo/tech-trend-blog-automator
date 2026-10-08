@@ -4,10 +4,12 @@ import json
 from pathlib import Path
 import re
 import secrets
+from urllib.parse import unquote, urlsplit
 
 from config import settings
 from src.curator.matcher import CuratedTopic
-from src.editorial.models import DraftArtifact, DraftStatus, ResearchBlocked, ResearchPacket
+from src.editorial.models import DraftArtifact, DraftStatus, ResearchBlocked, ResearchPacket, UserContext
+from src.editorial.validate import _run_issue
 
 
 def digest(path: Path) -> str:
@@ -20,6 +22,35 @@ def write_json(path: Path, value):
     temporary = path.with_name(path.name + "." + secrets.token_hex(6) + ".tmp")
     temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     temporary.replace(path)
+
+
+def _input_hash(data):
+    return hashlib.sha256(json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def _snapshot_context(context, directory):
+    """Copy explicitly supplied run bytes; never re-read Vault note bodies."""
+    runs, reasons = [], []
+    for index, run in enumerate(context.experience_refs, 1):
+        target = directory / f"R{index}.bin"
+        directory.mkdir(parents=True, exist_ok=True)
+        path = run.snapshot_path
+        if path is None and run.url.startswith("file:///"):
+            raw_path = unquote(urlsplit(run.url).path)
+            if re.match(r"/[A-Za-z]:/", raw_path):
+                raw_path = raw_path[1:]
+            path = Path(raw_path)
+        try:
+            raw = path.read_bytes() if path is not None else run.text.encode("utf-8")
+            target.write_bytes(raw)
+        except OSError:
+            reasons.append("user_context_run_snapshot_unavailable")
+        local = run.model_copy(update={"snapshot_path": target})
+        issue = _run_issue(local)
+        if issue:
+            reasons.append("user_context_" + issue)
+        runs.append(local)
+    return context.model_copy(update={"experience_refs": tuple(runs)}), tuple(dict.fromkeys(reasons))
 
 
 class DraftStore:
@@ -44,17 +75,54 @@ class DraftStore:
         write_json(directory / "run.json", {"topic_id": topic_id, "status": "NEEDS_RESEARCH", "reasons": ["generation_incomplete"]})
         return identity
 
-    def register_topic(self, topic: CuratedTopic) -> str:
-        identity = hashlib.sha256(topic.model_dump_json().encode()).hexdigest()
+    def register_topic(self, topic: CuratedTopic, *, user_context: UserContext | None = None) -> str:
+        context = user_context if user_context is not None else UserContext()
+        data = {"topic": topic.model_dump(mode="json"), "user_context": context.model_dump(mode="json")}
+        identity = _input_hash(data)
         directory = self.root / "topics"
         directory.mkdir(parents=True, exist_ok=True)
-        write_json(directory / (identity + ".json"), topic)
+        path = directory / (identity + ".json")
+        if not path.exists():
+            # Identity binds original metadata; deterministic sibling paths bind
+            # its run bytes through the source hashes. Re-registration cannot
+            # replace an earlier card's frozen input with a later mutable file.
+            _snapshot_context(context, directory / (identity + "-runs"))
+            write_json(path, data)
         return identity
 
-    def topic(self, topic_id: str) -> CuratedTopic:
+    def _topic_input(self, topic_id: str):
         if not re.fullmatch(r"[a-f0-9]{64}", topic_id):
             raise ValueError("invalid topic ID")
-        return CuratedTopic.model_validate_json((self.root / "topics" / (topic_id + ".json")).read_text(encoding="utf-8"))
+        data = json.loads((self.root / "topics" / (topic_id + ".json")).read_text(encoding="utf-8"))
+        if "topic" not in data:
+            # Old topic-only cards have no recoverable user context. Preserve
+            # their topic for inspection; generation will block visibly.
+            topic = CuratedTopic.model_validate(data)
+            if hashlib.sha256(topic.model_dump_json().encode()).hexdigest() != topic_id:
+                raise ValueError("topic input changed")
+            return {"topic": topic.model_dump(mode="json"), "user_context": None}
+        if _input_hash(data) != topic_id:
+            raise ValueError("topic input changed")
+        return data
+
+    def topic(self, topic_id: str) -> CuratedTopic:
+        return CuratedTopic.model_validate(self._topic_input(topic_id)["topic"])
+
+    def prepare_context(self, topic_id: str, draft_id: str):
+        directory = self.directory(draft_id)
+        try:
+            data = self._topic_input(topic_id)
+            write_json(directory / "input.json", data)
+            if data["user_context"] is None:
+                return None, ("user_context_input_unavailable",)
+            context = UserContext.model_validate(data["user_context"])
+        except (OSError, ValueError, KeyError, TypeError):
+            return None, ("user_context_input_unavailable_or_changed",)
+        frozen_runs = tuple(run.model_copy(update={"snapshot_path": self.root / "topics" / (topic_id + "-runs") / f"R{index}.bin"})
+                            for index, run in enumerate(context.experience_refs, 1))
+        context, reasons = _snapshot_context(context.model_copy(update={"experience_refs": frozen_runs}), directory / "input-runs")
+        write_json(directory / "user-context.json", context)
+        return context, reasons
 
     def get_draft(self, draft_id: str) -> DraftArtifact:
         directory = self.directory(draft_id)
@@ -140,6 +208,8 @@ class DraftStore:
         summary += "\n\n## Source provenance\n\n" + "\n".join(
             f"- [{source.title}]({source.url}) — {source.role}; SHA-256: {source.sha256}; locations: {', '.join(source.locations)}; error: {source.error}" for source in sources)
         summary += "\n\n## Validation\n\n```json\n" + json.dumps(validation, ensure_ascii=False, indent=2) + "\n```\n"
+        if result.get("user_context") is not None:
+            summary += "\n## Bound user context\n\n```json\n" + result["user_context"].model_dump_json(indent=2) + "\n```\n"
         draft = result.get("draft")
         if draft is not None:
             # Telegram delivers this report before approval. Include every

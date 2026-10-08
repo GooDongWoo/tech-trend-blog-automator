@@ -22,7 +22,7 @@ from config import settings
 from src.profiler.interest_profiler import InterestProfiler
 from src.collector.orchestrator import TrendOrchestrator
 from src.curator.matcher import TrendMatcher, CuratedTopic
-from src.editorial.pipeline import EditorialPipeline, approval_callback, decode_callback
+from src.editorial.pipeline import EditorialPipeline, approval_callback, decode_callback, topic_callback, decode_topic_callback
 from src.editorial.models import DraftStatus
 from src.publisher.git_publisher import GitPublisher
 from src.publisher.obsidian_sync import ObsidianSync
@@ -93,17 +93,18 @@ class TrendBotApp:
         # 3. Curate Top 5
         curated = self.matcher.curate_top_5(profile, raw_items)
         self.current_topics = {t.rank: t for t in curated}
+        topic_ids = {t.rank: self.pipeline.register_topic(t, user_context=profile.user_context) for t in curated}
 
         # 4. Format Message & Keyboard
         card_text = self.matcher.format_telegram_card(curated)
 
         keyboard = [
             [
-                InlineKeyboardButton(f"{t.rank}번 선택", callback_data=f"select_{t.rank}")
+                InlineKeyboardButton(f"{t.rank}번 선택", callback_data=topic_callback(topic_ids[t.rank]))
                 for t in curated[:3]
             ],
             [
-                InlineKeyboardButton(f"{t.rank}번 선택", callback_data=f"select_{t.rank}")
+                InlineKeyboardButton(f"{t.rank}번 선택", callback_data=topic_callback(topic_ids[t.rank]))
                 for t in curated[3:]
             ] + [InlineKeyboardButton("🔄 새로고침", callback_data="refresh_topics")]
         ]
@@ -193,11 +194,11 @@ class TrendBotApp:
             if data == "refresh_topics":
                 await self.trigger_briefing(chat_id=chat, context=context)
             elif data.startswith("select_"):
-                topic = self.current_topics.get(int(data.removeprefix("select_")))
-                if topic is None:
-                    raise ValueError("topic expired; refresh the briefing")
+                raise ValueError("obsolete topic selection; refresh the briefing to bind its input")
+            elif data.startswith("s:"):
+                topic_id = decode_topic_callback(data)
                 await query.edit_message_text("원문과 근거를 확인해 로컬 검토 초안을 생성합니다.")
-                artifact = await self.pipeline.generate(self.pipeline.register_topic(topic))
+                artifact = await self.pipeline.generate(topic_id)
                 await self.send_review(context.bot, query.message.chat_id, artifact)
             elif data.startswith("r:"):
                 draft_id = data.removeprefix("r:")
