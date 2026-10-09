@@ -16,3 +16,13 @@ must retain attribution and their reported comparison conditions.
 Use offline fixtures and temporary paths for verification. Drafting writes only
 local review artifacts. Blog/Vault writes and publication require approval of a
 specific reviewed draft; never trigger Vault incremental indexing automatically.
+
+## Natural-language workflow
+
+Use `.agents/skills/blog-workflow/SKILL.md` and `docs/natural-language-workflow.md`
+for natural-language run operations. Vault topic requests default to `main.py
+briefing`; retain the durable run ID and use status/resume for continuation.
+Approval requires the user to see the entire current review and explicitly approve
+its exact ID/hash. One-post trial scope never changes global shadow/cutover settings.
+Evaluation separates routine operator actions, editorial/recovery interventions
+and system failures; absent SDK measurements and human scores remain unknown.

@@ -2,7 +2,7 @@
 
 Collect and curate technical topics, then create Korean developer drafts with an inspectable source packet, editorial brief, claim map and validation report. The runtime policy is `src/editorial/policy.md`; `AGENTS.md` is maintenance guidance.
 
-**Telegram runs in shadow mode by default.** It delivers complete draft/report attachments, source links, exact hashes and revision controls. A reviewer can approve a specific draft; publication remains blocked until a separate quality gate and operator cutover decision. No production cutover has been performed.
+**Telegram runs in shadow mode by default.** It delivers complete draft/report attachments, source links, exact hashes and revision controls. Publication requires exact reviewed approval and either an explicitly scoped one-post trial or the production quality/cutover gates. No production cutover has been performed.
 
 Current implementation, verification boundaries and pending quality work: [refactor status](docs/refactor-status.md). See the [current architecture](docs/architecture.md) and [change log](docs/changelog.md) for the flow and changes.
 
@@ -35,13 +35,14 @@ Retain these defaults while evaluating:
 
 Disabling shadow mode alone does not enable publication. Telegram checks a locally saved evaluation report with real, hash-bound human reviews across multiple topic types and a separate explicit cutover authorization. A passing report is evidence for the operator's decision; it never authorizes that decision by itself. The bundled synthetic evaluation can never pass this gate.
 
-The CLI publisher also requires a specific approved draft ID/hash. Shadow mode guards the Telegram route; it is not a general operating-system permission boundary. Ordinary evaluation must use temporary paths. An explicitly authorized one-post live trial may use the separate operator CLI after full review and approval of that exact `REVIEW_READY` draft. This does not authorize a production cutover or waive research, validation, manifest/hash or reviewer checks.
+The shared CLI/Telegram authorization requires the current delivered draft ID/hash and reviewer. Shadow runs cannot publish. Ordinary evaluation must use temporary paths. After the user sees and explicitly approves the full review, a separately authorized one-post trial can elevate that exact run/revision through `trial`. This does not authorize production cutover or waive research, validation, manifest/hash or reviewer checks.
 
 For that separately authorized trial only:
 
-    python scripts/publish_and_sync.py <approved-draft-id> <approved-content-sha256> --review-root temp/review
+    python main.py trial RUN DRAFT SHA --reviewer REVIEWER
+    python main.py publish RUN DRAFT SHA --reviewer REVIEWER
 
-The CLI can write the configured live blog and Vault even when Telegram shadow mode is enabled. Verify the configured destinations and use only the reviewed ID/hash. Confirmed Git push precedes Vault sync; indexing is never triggered.
+An explicitly scoped trial can write the configured blog and Vault while global shadow remains enabled. Confirmed Git push precedes Vault sync; indexing is never triggered. Existing legacy reviews need explicit `review-legacy` delivery before scoped workflow authorization; see the [command guide](docs/natural-language-workflow.md).
 
 ## Usage
 
@@ -50,6 +51,10 @@ The CLI can write the configured live blog and Vault even when Telegram shadow m
     python main.py test-pipeline
 
 `/now` and `/trend` request a briefing. Selecting a topic sends a complete local review bundle. Review approval records the exact draft; it performs no Git or Vault write. Regeneration supersedes the old approval button.
+
+For natural-language requests use the discoverable repository [blog-workflow skill](.agents/skills/blog-workflow/SKILL.md). “Vault 보고 주제 텔레그램으로 보내줘” maps to `briefing --mode shadow`; “계속해줘” resumes the saved `run_id`. The [workflow guide](docs/natural-language-workflow.md) covers selection, directed section revision, user-visible full review, exact approval, trial/publication and durable failure recovery. `--intent` records routing context, not an unrestricted writing prompt.
+
+The shared configurable `OPENAI_MODEL` default is `gpt-4o-mini` (the writer formerly used `gpt-4o`); `LLM_FALLBACK_MODELS` explicitly names any fallbacks. This states configuration, not live model availability.
 
 `test-pipeline` performs online collection/model work unless dependencies are explicitly injected; its draft output defaults to a temporary review directory. It is not the offline test command.
 
@@ -64,7 +69,7 @@ The output directory must be new/empty and outside configured blog/Vault paths. 
 
 The bundled synthetic queue fixture replays four stage labels: old one-shot output, packet output, packet plus validator, and full drafting/validator/targeted-repair flow. It is a hand-authored diagnostic, with no model call. It tests harness behavior only; one-shot/packet generations are not reexecuted, and full replay omits media. Real captures require declared matching model/budget, source/output/prompt hashes, capture metadata, and exact prompt matching for full replay.
 
-The report records raw unsupported-claim spans, first-person spans without logs, mapped-source coverage and issue codes. Human scores, meme fit, model elapsed time, tokens and cost per draft remain **not measured**. Offline replay time measures local Python work only. Source mappings are not factual verification; a first-person span without a log is not proof that a real author fabricated an experience.
+The model-only report records unsupported-claim spans, first-person spans without logs, mapped-source coverage and issue codes. Human scores, meme fit and cost remain **not measured**. Durable `workflow_receipt` summaries separately expose captured SDK tokens/call time when available and operator interventions; missing or synthetic measurements stay null. Offline replay time measures local Python work only. Source mappings are not factual verification; a first-person span without a log is not proof that a real author fabricated an experience.
 
 Release remains blocked until real blinded human review supplies zero critical defects and mean technical depth and decision clarity of at least 4/5 for every included topic type, with required-type coverage enforced separately. IDs must be unique and reviews bind valid SHA-256 hashes; unbound or duplicate records fail the gate. See [evaluation evidence, rubric and recovery](docs/editorial-evaluation.md). The temporary Git/fake-push/temporary-Vault rehearsal in `tests/test_publish_workflow.py` exercises publication mechanics only.
 

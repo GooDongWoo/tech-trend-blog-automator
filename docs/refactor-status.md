@@ -1,4 +1,8 @@
-# 리팩토링 구현 상태 — 2026-10-08
+# 리팩토링 구현 상태 — 2026-10-09
+
+자연어 workflow 구현 브랜치는 `codex/natural-language-blog-workflow`다. durable run/공유 승인, bounded model, primary research와 grounding, repository skill 및 오프라인 replay를 추가했다. 최종 독립 리뷰와 전체 회귀는 부모 통합 단계에서 수행하며 아래 411개 기록은 이전 병합 게이트다. 현재 전체 검증으로 재해석하지 않는다. 명령과 측정 경계는 [natural-language-workflow.md](natural-language-workflow.md)에 있다.
+
+Task 5 집중 게이트는 `test_workflow_replay.py`, `test_evaluation.py`, structured CLI request/status/review/trial와 `test_workflow_briefing.py`에서 `37 passed in 55.20s`였다. 임시 Git/fake push·임시 Vault를 포함하며 실제 모델 품질·전송·배포 검증은 아니다. skill validator와 CLI help, whitespace 검사도 통과했다.
 
 구현 기준 커밋: `c9e57fb`. 통합 기준 커밋: `55dc9b5`.
 
@@ -38,13 +42,13 @@ Unit 0–7과 Unit 8의 평가 도구·shadow 설정은 구현 및 독립 리뷰
 
 자동화 프로젝트의 코드·문서 통합과 원격 반영은 실제 블로그 발행과 별개다. 위 병합 검증 시점에는 실제 블로그·Vault 쓰기, Vault 색인, 발행용 Git push, Telegram 전달과 운영 전환을 수행하지 않았다. 공개 PageIndex 원문은 shadow 조사용으로 읽었으며 모델 호출은 0회였다.
 
-### 첫 UniSkill 실발행 시험 준비
+### 첫 UniSkill 실발행 시험
 
 병합 이후 사용자 요청으로 실제 Vault 관심 추출과 후보 수집을 수행하고 Telegram에 주제 5개를 전달했다. 사용자가 선택한 UniSkill은 요약 페이지의 실험 조건 부족으로 두 차례 `NEEDS_RESEARCH`가 됐다. 원문 PDF·HTML과 코드 공개 예고만 있는 저장소를 직접 확인하고, 전체 원문 바이트를 보존한 채 편집자가 실제 실험 구간과 근거 발췌를 보완했다.
 
-실제 모델 초안은 주장 연결과 ablation 해석에 문제가 있어 `NEEDS_REVISION`으로 남겼다. 원문 대조 편집으로 만든 별도 수정본 `Fv4PmoV6OSTxehQp`는 `REVIEW_READY`이며, 사용자에게 전체 본문·근거·편집 개입 기록을 전달해 특정 수정본 승인을 기다리는 단계다. 이 기록 시점에는 실제 발행이 확인되지 않았다. 기본 shadow 및 정식 운영 전환 게이트는 유지한다.
+실제 모델 초안은 주장 연결과 ablation 해석에 문제가 있어 `NEEDS_REVISION`으로 남겼다. 원문 대조 편집으로 만든 별도 수정본 `Fv4PmoV6OSTxehQp`의 전체 검토·승인 뒤, 확인된 로컬 영수증 `temp/first-publication-20261008-232932/publication.json`은 `success=true`, `PUBLISHED`, commit `6eeeac5f63872fca1a1a5ba21e23d0d18cc95df2`, `SYNCED`, `sync_error=null`을 기록한다. 본문 SHA-256은 `8b1de5e9916f4146ac72f50f3aa2da3c28572d53500ce131f339fcf0113fe8ff`다. 사이트 배포는 확인되지 않았다. 기본 shadow 및 정식 운영 전환 게이트는 유지한다.
 
-이번 한 편의 별도 운영자 발행은 사용자가 요청했다. 해당 검토본의 승인과 해시 검증을 통과해야만 기존 CLI 발행 경로를 사용할 수 있다. 일괄 운영 전환, 모델 품질 향상, 논문 실험 재현 또는 완전 자동 작성 성공을 뜻하지 않는다. 논문 브리프 인식 회귀 검증 127개가 통과했으며, 요약 페이지에서 원문으로 이어지는 자동 조사와 자연스러운 한국어 근거 연결은 추가 개선이 필요하다.
+이번 한 편의 별도 운영자 발행은 사용자가 요청했다. PDF·HTML·저장소 확인, 실험 발췌 보완, ablation 해석·문장 교정은 수동 개입이었다. 일괄 운영 전환, 모델 품질 향상, 논문 실험 재현 또는 완전 자동 작성 성공을 뜻하지 않는다. 실패한 첫 초안 호출 한 번의 기록은 7.16초, SDK input 5892/output 1569/total 7461 tokens다. 전체 pipeline 시간·비용은 미확인이다. 이전 논문 브리프 인식 회귀 127개와 새 frozen minimal replay는 각각 해당 회귀/동작 경로만 검증한다.
 
 ## 실제 원문 shadow 조사
 
@@ -66,6 +70,6 @@ Unit 0–7과 Unit 8의 평가 도구·shadow 설정은 구현 및 독립 리뷰
 
 과거 글 8편에는 당시 원문·모델 응답·프롬프트·예산이 없어 역사적 동일 입력 재현을 할 수 없다. 합성 사례의 단계별 replay는 오류 감지·수정 경로를 검증하며 실제 문체나 모델 신뢰성의 개선율을 측정하지 않는다.
 
-다음 평가에는 서로 다른 글 유형의 실제 원문을 새로 고정하고, 동일 모델·입력·예산으로 네 변형을 실행한 기록이 필요하다. 모델 토큰·시간·비용과 밈 적합성은 미측정 상태다. 사람은 변형 이름을 가린 전체 글과 근거를 평가해야 한다.
+다음 평가에는 서로 다른 글 유형의 실제 원문을 새로 고정하고, 동일 모델·입력·예산으로 네 변형을 실행한 기록이 필요하다. 실제 SDK capture가 있는 호출의 토큰·시간만 확인할 수 있으며 전체 pipeline 비용과 밈 적합성은 미측정 상태다. 사람은 변형 이름을 가린 전체 글과 근거를 평가해야 한다.
 
 출시는 검토된 핵심 결함 0건, 모든 포함 유형의 기술적 깊이·판단 명료성 평균 각각 4/5 이상, 필수 유형 coverage를 요구한다. 미측정·합성 입력·누락된 사람 평점은 통과로 간주하지 않는다. 자세한 규칙과 채점표는 [editorial-evaluation.md](editorial-evaluation.md), 운영 방법은 [README](../README.md)에 있다.

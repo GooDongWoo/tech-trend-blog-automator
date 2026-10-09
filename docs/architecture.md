@@ -64,3 +64,19 @@ flowchart TD
 ## 과거 다이어그램
 
 [architecture.json](architecture.json), [architecture.html](architecture.html), [architecture-diagram.png](architecture-diagram.png)는 리팩토링 이전 자료다. JSON 메타데이터와 HTML 첫 화면에 이 사실을 표시하며 PNG는 원본 기록으로 보존한다. 이 자료의 모델명·RAG 설명·직접 작성/발행 화살표를 현재 계약으로 사용하지 않는다. HTML에서 새로 내보낸 이미지도 과거 흐름을 담는다.
+
+## Durable natural-language entry
+
+Repository `.agents/skills/blog-workflow/SKILL.md` routes supported requests to
+`main.py` JSON commands and `src/workflow/service.py`; it retains `run_id` and
+publication scope. `RunStore` freezes completed checkpoints, revision directives,
+review delivery/approval and publication targets. CLI and Telegram share this
+authorization. Default Vault topic requests use configured Telegram `briefing`;
+local `request --reviewer` is optional. See [the command and receipt contract](natural-language-workflow.md).
+
+Resume retries incomplete stages and previously reserved publication targets.
+Confirmed Git publication can retry Vault sync independently. A shadow run needs
+explicit exact one-post trial authorization; production retains quality/cutover
+gates. Telegram acceptance before its local delivery checkpoint can cause repeat
+delivery after restart. Receipt evaluation separates system failures, routine
+operator choices and editorial/recovery interventions; it supplies no human ratings.

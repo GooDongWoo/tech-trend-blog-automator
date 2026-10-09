@@ -1,5 +1,12 @@
 # 변경 기록
 
+## 2026-10-09 — 자연어 durable workflow
+
+- repository `blog-workflow` skill과 실제 CLI 명령 안내를 추가했다. 기본 Vault→Telegram briefing, 저장 run 계속, 선택, 지시 기반 수정, 전체 검토 후 exact ID/hash 승인과 한 편 trial을 공유 서비스로 연결한다.
+- 공개 UniSkill 최소 발췌 기반 합성 offline replay는 Telegram 실패/재시작, 승인 수정본, 임시 Git 한 번 발행과 push 없는 Vault sync 재시도를 확인한다. run receipt 평가에서 routine actions, editorial/recovery 개입과 system failures를 분리하며 없는 SDK usage·비용·사람 점수는 null로 둔다. 최종 전체 회귀는 별도 통합 게이트다.
+- 첫 실제 시험의 승인 대기 기록을 확인된 `PUBLISHED`/`SYNCED`와 commit `6eeeac5f63872fca1a1a5ba21e23d0d18cc95df2`로 바로잡았다. 수동 조사·실험 발췌·ablation/문장 교정이 포함됐으며 배포와 자동 품질 향상은 확인되지 않았다.
+- 공유 `OPENAI_MODEL` 기본값은 configurable `gpt-4o-mini`다(writer 이전 `gpt-4o`). Telegram acceptance 후 checkpoint 전 중단은 재전달될 수 있다. 전역 shadow/cutover 및 Vault 색인 금지는 유지한다.
+
 ## 2026-10-08 — 첫 실발행 시험 준비와 논문 브리프 인식 수정
 
 - `Methodology`, 명시적인 `retain only` 데이터 조건, `does not guarantee` 평가 한계를 브리프의 작동 원리·채택 제약·판단을 뒤집을 조건으로 인식한다. 문서에 없는 설명은 여전히 차단한다.
