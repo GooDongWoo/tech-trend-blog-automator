@@ -155,6 +155,66 @@ def audit_counts(draft, report):
             "validator_issues": len(report.issues), "issue_codes": dict(Counter(issue.code for issue in report.issues))}
 
 
+def workflow_receipt(service, run_id, *, synthetic):
+    """Read durable receipts; caller declares provenance, never human quality.
+
+    Model captures contain redacted metadata. Missing usage stays unknown, and
+    synthetic transport duration is not live SDK/model latency. Routine operator
+    choices are separate from editorial/recovery interventions and system faults.
+    """
+    run = service.status(run_id)
+    events = run.events
+    captures, errors = [], []
+    for ref in run.usage_refs:
+        try:
+            record = load_json(ref)
+            if not isinstance(record, dict) or not isinstance(record.get('attempts'), list):
+                raise ValueError('invalid_capture')
+            captures.append(record)
+        except (OSError, ValueError, TypeError):
+            errors.append('capture_unavailable')
+    attempts = [attempt for record in captures for attempt in record['attempts']]
+    complete_usage = bool(attempts) and not errors and all(
+        isinstance(attempt, dict) and isinstance(attempt.get('usage'), dict)
+        and all(type(attempt['usage'].get(key)) is int and attempt['usage'][key] >= 0
+                for key in ('input_tokens', 'output_tokens', 'total_tokens')) for attempt in attempts)
+    tokens = {key: sum(attempt['usage'][key] for attempt in attempts)
+              for key in ('input_tokens', 'output_tokens', 'total_tokens')} if complete_usage and not synthetic else None
+    timings = [dict(action=e['action'], elapsed_seconds=e['elapsed_seconds'])
+               for e in events if 'elapsed_seconds' in e]
+    durations = [record.get('elapsed_seconds') for record in captures]
+    model_seconds = sum(durations) if not synthetic and durations and not errors and all(
+        type(value) in (int, float) and value >= 0 for value in durations) else None
+    counts, identity = None, None
+    if run.draft_id:
+        artifact = service.pipeline(run).get_draft(run.draft_id)
+        service.pipeline(run).store.verify(artifact)
+        draft = DraftText.model_validate(load_json(artifact.content_path.parent / 'draft.json'))
+        from src.editorial.models import ValidationReport
+        validation = load_json(artifact.report_path)
+        report = ValidationReport.model_validate({key: value for key, value in validation.items() if key in ValidationReport.model_fields})
+        counts = audit_counts(draft, report)
+        identity = dict(draft_id=artifact.id, content_sha256=artifact.content_sha256)
+    def operator(category):
+        return sum(e.get('actor') == 'operator' and e.get('category') == category for e in events)
+    return dict(schema_version=1, run_id=run.id, synthetic=synthetic,
+        mode='synthetic_workflow_replay' if synthetic else 'durable_run_receipts',
+        measurement_scope='available_captures_only',
+        captured_model_stages=sorted({record['stage'] for record in captures if isinstance(record.get('stage'), str)}),
+        usage_capture_count=len(captures), usage_reference_count=len(run.usage_refs),
+        status=run.status, identity=identity, delivery=run.delivery, approval=run.approval,
+        publication=run.publication, counts=counts, human_scores=None,
+        operator_interventions=operator('editorial_intervention') + operator('recovery'),
+        editorial_interventions=operator('editorial_intervention'), recovery_interventions=operator('recovery'),
+        routine_operator_actions=operator('routine'),
+        system_failures=sum(e.get('actor') == 'system' and e.get('category') == 'failure' for e in events),
+        events=events, capture_errors=errors,
+        measurements=dict(tokens=tokens, cost=None, model_call_seconds=model_seconds, stage_timings=timings),
+        limitations=['receipts_are_not_quality_scores', 'stage_timings_are_not_full_pipeline_wall_time',
+            'unknown_usage_is_not_zero', 'capture_list_does_not_prove_full_run_coverage',
+            'synthetic_replay_is_not_live_generation', 'no_paired_comparison'])
+
+
 def evaluate_variant(case, variant, root):
     row = {"case_id": case["id"], "topic_type": case["topic_type"], "variant": variant,
         "synthetic": case.get("synthetic", False), "model": case.get("model"), "budget": case.get("budget"),
@@ -219,8 +279,8 @@ def evaluate_variant(case, variant, root):
         return row, None, None
 
 
-def run_evaluation(manifest_path, output_root, *, baseline_path=ROOT / "tests/fixtures/baseline-manifest.json", human_reviews=None, seed=7):
-    manifest_path, output_root = Path(manifest_path), Path(output_root)
+def new_output_directory(output_root):
+    output_root = Path(output_root)
     # Refuse live destinations even if the caller accidentally supplies one.
     from config import settings
     target = output_root.resolve()
@@ -229,6 +289,12 @@ def run_evaluation(manifest_path, output_root, *, baseline_path=ROOT / "tests/fi
     if output_root.exists() and any(output_root.iterdir()):
         raise ValueError("evaluation_output_must_be_empty; preserve existing reviews")
     output_root.mkdir(parents=True, exist_ok=True)
+    return output_root
+
+
+def run_evaluation(manifest_path, output_root, *, baseline_path=ROOT / "tests/fixtures/baseline-manifest.json", human_reviews=None, seed=7):
+    manifest_path = Path(manifest_path)
+    output_root = new_output_directory(output_root)
     blind = output_root / "blind"
     blind.mkdir()
     cases = load_json(manifest_path)["cases"]
@@ -288,7 +354,22 @@ def main(argv=None):
     parser.add_argument("--manifest", type=Path, default=ROOT / "tests/fixtures/evaluation/cases.json")
     parser.add_argument("--output", type=Path, required=True, help="new local directory; never a blog/Vault")
     parser.add_argument("--human-reviews", type=Path)
+    parser.add_argument('--workflow-run', help='read durable run receipts instead of variant replay')
+    parser.add_argument('--workflow-root', type=Path)
+    parser.add_argument('--synthetic-replay', action='store_true', help='declare injected/synthetic run provenance')
     args = parser.parse_args(argv)
+    if args.workflow_run:
+        if args.workflow_root is None or args.human_reviews:
+            parser.error('workflow receipts require --workflow-root and cannot generate human reviews')
+        from src.workflow.service import WorkflowService
+        result = workflow_receipt(WorkflowService(args.workflow_root), args.workflow_run, synthetic=args.synthetic_replay)
+        output = new_output_directory(args.output)
+        path = output / 'report.json'
+        path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')
+        print(json.dumps({'run_id': result['run_id'], 'status': result['status'], 'report': str(path)}, ensure_ascii=False))
+        return 0
+    if args.workflow_root or args.synthetic_replay:
+        parser.error('--workflow-root/--synthetic-replay require --workflow-run')
     result = run_evaluation(args.manifest, args.output, human_reviews=args.human_reviews)
     print(json.dumps({"runs": len(result["runs"]), "historical_unreproducible": len(result["historical_baselines"]),
                       "release_gate": result["release_gate"], "report": str(args.output / "report.json")}, ensure_ascii=False))
