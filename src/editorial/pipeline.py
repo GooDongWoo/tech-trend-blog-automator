@@ -41,7 +41,7 @@ class EditorialPipeline:
     def register_topic(self, topic, *, user_context=None) -> str:
         return self.store.register_topic(topic, user_context=user_context)
 
-    async def generate(self, topic_id: str) -> DraftArtifact:
+    async def generate(self, topic_id: str, *, research=None, revision=None) -> DraftArtifact:
         identity = self.store.begin(topic_id)
         writer = copy.copy(self.writer)
         writer.artifact_dir = self.store.directory(identity) / 'working'
@@ -55,7 +55,10 @@ class EditorialPipeline:
                 result = {"status": "NEEDS_RESEARCH", "reasons": list(reasons), "user_context": user_context}
             else:
                 topic = self.store.topic(topic_id)
-                result = await writer.generate_post(topic, user_context=user_context, persist_artifacts=False)
+                kwargs = {"research": research} if research is not None else {}
+                if revision is not None:
+                    kwargs["revision"] = revision
+                result = await writer.generate_post(topic, user_context=user_context, persist_artifacts=False, **kwargs)
                 result["user_context"] = user_context
         except Exception as error:
             result = {"status": "NEEDS_RESEARCH", "reasons": ["generation_failed", type(error).__name__]}

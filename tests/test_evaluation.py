@@ -139,7 +139,9 @@ def test_shadow_shows_complete_review_but_blocks_old_publish_callbacks(tmp_path,
         message=SimpleNamespace(chat_id=7), from_user=SimpleNamespace(id=7))
     asyncio.run(app.handle_callback(SimpleNamespace(callback_query=query), SimpleNamespace(bot=bot)))
     assert pipeline.get_draft(artifact.id).status == "APPROVED"
-    assert not query.edit_message_text.call_args.kwargs.get("reply_markup")
+    buttons = query.edit_message_text.call_args.kwargs['reply_markup'].inline_keyboard
+    assert all(not button.callback_data.startswith('p:') for row in buttons for button in row)
+    assert any(button.callback_data.startswith('t:') for row in buttons for button in row)
     query.data = "p:" + approval_callback(artifact)[2:]
     asyncio.run(app.handle_callback(SimpleNamespace(callback_query=query), SimpleNamespace(bot=bot)))
     assert "shadow" in query.edit_message_text.call_args.args[0].lower()
@@ -156,7 +158,13 @@ def test_disabling_shadow_alone_still_blocks_publication(tmp_path, drafting_inpu
     artifact = pipeline.approve(artifact.id, artifact.content_sha256)
     query = SimpleNamespace(data="p:" + approval_callback(artifact)[2:], answer=AsyncMock(), edit_message_text=AsyncMock(),
         message=SimpleNamespace(chat_id=7), from_user=SimpleNamespace(id=7))
-    asyncio.run(TrendBotApp(pipeline=pipeline).handle_callback(SimpleNamespace(callback_query=query), SimpleNamespace(bot=None)))
+    app = TrendBotApp(pipeline=pipeline)
+    bot = SimpleNamespace(send_message=AsyncMock(), send_document=AsyncMock())
+    asyncio.run(app.send_review(bot, 7, artifact))
+    run = app.workflow.find_run(artifact.id)
+    run.mode = 'production'
+    app.workflow.store.save(run)
+    asyncio.run(app.handle_callback(SimpleNamespace(callback_query=query), SimpleNamespace(bot=bot)))
     assert "cutover" in query.edit_message_text.call_args.args[0].lower()
     assert not settings.blog_repo_path.exists() and not settings.obsidian_vault_path.exists()
 

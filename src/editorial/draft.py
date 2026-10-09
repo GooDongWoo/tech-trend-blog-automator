@@ -157,3 +157,39 @@ def write_draft(brief: EditorialBrief, packet: ResearchPacket, llm: LLMClient, *
         except Exception as error:
             return _blocked(draft, "draft_revision_failed", detail=type(error).__name__)
     return draft
+
+def revise_draft(brief, packet, llm, baseline, instruction, *, section_id=None, reviewer=None, media_catalog=None):
+    """Apply an explicit human editing directive to the bound existing sections."""
+    import json
+    draft = baseline.model_copy(update={'packet': packet, 'grounding_review': None, 'report': None})
+    try:
+        version, policy = load_policy()
+        if version != brief.policy_version:
+            return _blocked(draft, 'editorial_policy_version_mismatch')
+        allowed = {s.id for s in draft.sections if not MEDIA_INPUT.search(s.text)}
+        implicated = {section_id} if section_id else allowed
+        if not instruction.strip() or not implicated or not implicated.issubset(allowed):
+            return _blocked(draft, 'invalid_user_revision_scope')
+        revision = {'implicated_sections': sorted(implicated), 'issues': [],
+            'current_draft': {'frontmatter': None, 'sections': [s.model_dump(mode='json') for s in draft.sections if s.id in implicated]}}
+        prompt = (_context(brief, packet, policy, revision=revision) + '\nExplicit user editing directive (not factual evidence):\n' +
+            json.dumps(instruction, ensure_ascii=False) + '\nRevision task:\n' + _CONTRACT +
+            '\nReturn only {sections: [replacement sections]}. Replace exactly the requested section IDs; preserve all other bytes and frontmatter.\n')
+        repair = _Revision.model_validate_json(llm.generate(prompt))
+        ids = [s.id for s in repair.sections]
+        if set(ids) != implicated or len(ids) != len(implicated) or repair.frontmatter is not None:
+            return _blocked(draft, 'revision_scope_violation')
+        if any(MEDIA_INPUT.search(s.text) for s in repair.sections):
+            return _blocked(draft, 'model_supplied_media')
+        replacements = {s.id: s for s in repair.sections}
+        draft = draft.model_copy(update={'sections': tuple(replacements.get(s.id, s) for s in draft.sections), 'revision_attempts': 1})
+        static = validate_draft(draft, packet, brief, media_catalog=media_catalog)
+        if any(i.code == 'claim_span_mismatch' for i in static.issues):
+            return draft.model_copy(update={'report': static})
+        review = review_draft(draft, packet, reviewer) if reviewer is not None else None
+        return draft.model_copy(update={'grounding_review': review.model_dump(mode='json') if review else None,
+            'report': validate_draft(draft, packet, brief, grounding=review, media_catalog=media_catalog)})
+    except ContextBudgetExceeded:
+        return _blocked(draft, 'required_context_budget_exhausted')
+    except Exception as error:
+        return _blocked(draft, 'draft_revision_failed', detail=type(error).__name__)

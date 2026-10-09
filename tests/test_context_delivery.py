@@ -40,9 +40,10 @@ def briefing_app(tmp_path, drafting_input, monkeypatch, *, damage_before_registr
         original.write_bytes(b"Changed before briefing")
     elif damage_before_registration == "missing":
         original.unlink()
-    profile = SimpleNamespace(user_context=context)
+    from src.profiler.interest_profiler import UserProfile
+    profile = UserProfile(core_interests=[], knowledge_depth={}, avoid_topics=[], target_domains=[], search_keywords=[], user_context=context)
     app = TrendBotApp(pipeline=pipeline)
-    app.profiler.build_profile = lambda: profile
+    app.profiler.build_profile = lambda **kwargs: profile
     app.collector.collect_all = AsyncMock(return_value=[])
     app.matcher.curate_top_5 = lambda *args: [pipeline.store.topic(topic_id)]
     bot = SimpleNamespace(send_message=AsyncMock(), send_document=AsyncMock())
@@ -55,9 +56,10 @@ def select(app, bot, callback):
     query = SimpleNamespace(data=callback, answer=AsyncMock(), edit_message_text=AsyncMock(),
         message=SimpleNamespace(chat_id=7), from_user=SimpleNamespace(id=7))
     asyncio.run(app.handle_callback(SimpleNamespace(callback_query=query), SimpleNamespace(bot=bot)))
-    artifacts = list(app.pipeline.store.root.glob("*/artifact.json"))
+    artifacts = list(app.workflow.store.root.rglob("artifact.json"))
     assert artifacts, "The stored selection must produce a visible review artifact after restart"
-    return app.pipeline.get_draft(artifacts[-1].parent.name)
+    run = app.workflow.find_run(artifacts[-1].parent.name)
+    return app.workflow.pipeline(run).get_draft(run.draft_id)
 
 
 def assert_bound_context(artifact, context, raw, llm):
@@ -85,16 +87,19 @@ def test_real_briefing_selection_uses_frozen_context_and_run_bytes(tmp_path, dra
     original.unlink()
     artifact = select(app, bot, callback)
     assert_bound_context(artifact, context, raw, llm)
-    app.pipeline.store.verify(artifact)
+    app.workflow.pipeline(app.workflow.find_run(artifact.id)).store.verify(artifact)
 
 
 def test_restart_selection_and_retry_preserve_original_context(tmp_path, drafting_input, monkeypatch):
     app, bot, callback, profile, context, original, raw, llm = briefing_app(tmp_path, drafting_input, monkeypatch)
     original.unlink()
     restarted = EditorialPipeline(app.pipeline.store.root, writer=app.pipeline.writer)
-    artifact = select(TrendBotApp(pipeline=restarted), bot, callback)
+    restarted_app = TrendBotApp(pipeline=restarted)
+    artifact = select(restarted_app, bot, callback)
     assert_bound_context(artifact, context, raw, llm)
-    retried = asyncio.run(EditorialPipeline(restarted.store.root, writer=restarted.writer).retry(artifact.id))
+    run = restarted_app.workflow.find_run(artifact.id)
+    revised = asyncio.run(restarted_app.workflow.revise(run.id, artifact.id, artifact.content_sha256, reviewer='telegram:7:7'))
+    retried = restarted_app.workflow.pipeline(revised).get_draft(revised.draft_id)
     assert_bound_context(retried, context, raw, llm)
     assert artifact.id != retried.id
 
@@ -102,7 +107,7 @@ def test_restart_selection_and_retry_preserve_original_context(tmp_path, draftin
 @pytest.mark.parametrize("damage", ["changed", "missing"])
 def test_changed_or_missing_frozen_run_blocks_visibly_before_model(tmp_path, drafting_input, monkeypatch, damage):
     app, bot, callback, profile, context, original, raw, llm = briefing_app(tmp_path, drafting_input, monkeypatch)
-    snapshots = list((app.pipeline.store.root / "topics").rglob("*.bin"))
+    snapshots = list(app.workflow.store.root.glob("*/review/topics/*-runs/*.bin"))
     assert snapshots, "Explicit run bytes must be frozen at briefing registration"
     if damage == "changed":
         snapshots[-1].write_bytes(b"tampered evidence")
@@ -145,14 +150,17 @@ def test_invalid_run_at_briefing_registration_stays_visible(tmp_path, drafting_i
 
 def test_changed_bound_user_metadata_does_not_default_to_empty(tmp_path, drafting_input, monkeypatch):
     app, bot, callback, profile, context, original, raw, llm = briefing_app(tmp_path, drafting_input, monkeypatch)
-    path = next(path for path in (app.pipeline.store.root / "topics").glob("*.json")
+    path = next(path for path in app.workflow.store.root.glob("*/review/topics/*.json")
                 if json.loads(path.read_text(encoding="utf-8"))["user_context"]["goals"])
     data = json.loads(path.read_text(encoding="utf-8"))
     data["user_context"]["goals"] = []
     path.write_text(json.dumps(data), encoding="utf-8")
-    artifact = select(app, bot, callback)
-    assert artifact.status == "NEEDS_RESEARCH"
-    assert "user_context_input_unavailable_or_changed" in artifact.report_path.read_text(encoding="utf-8")
+    query = SimpleNamespace(data=callback, answer=AsyncMock(), edit_message_text=AsyncMock(),
+        message=SimpleNamespace(chat_id=7), from_user=SimpleNamespace(id=7))
+    asyncio.run(app.handle_callback(SimpleNamespace(callback_query=query), SimpleNamespace(bot=bot)))
+    run = app.workflow.status(callback.split(':')[1])
+    assert run.status == "NEEDS_RESEARCH"
+    assert run.events[-1]['action'] == 'research_failed'
     assert llm.prompts == []
 
 

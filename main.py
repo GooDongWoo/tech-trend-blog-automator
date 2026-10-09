@@ -46,24 +46,87 @@ async def test_pipeline(*, output_root=None, topics=None, writer=None, user_cont
     return artifacts
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Tech Trend Curation & Blog Automator")
-    parser.add_argument("command", choices=["bot", "test-pipeline", "send-briefing"], default="bot", nargs="?",
-                        help="Run telegram bot, execute pipeline dry-run, or send briefing immediately to Telegram")
-
-    parser.add_argument("--output-root", type=Path, help="Local review output directory; defaults to a retained temporary directory")
-    args = parser.parse_args()
-
-    if args.command == "test-pipeline":
-        asyncio.run(test_pipeline(output_root=args.output_root))
-    elif args.command == "send-briefing":
-        bot_app = TrendBotApp()
-        asyncio.run(bot_app.trigger_briefing())
-    elif args.command == "bot":
-        bot_app = TrendBotApp()
-        bot_app.run()
-
+def main(argv=None, *, service=None):
+    import json
+    from src.workflow.service import WorkflowService
+    from src.workflow.models import DraftArgumentParser
+    parser = DraftArgumentParser(description="Durable evidence-led editorial workflow")
+    commands = parser.add_subparsers(dest="command", required=True)
+    for name in ("bot", "send-briefing", "test-pipeline"):
+        sub = commands.add_parser(name)
+        sub.add_argument("--output-root", type=Path)
+    for name in ("request", "status", "resume", "select", "review", "revise", "approve", "trial", "publish", "review-legacy"):
+        sub = commands.add_parser(name)
+        sub.add_argument("--workflow-root", type=Path)
+        if name == "request":
+            sub.add_argument("--mode", choices=("shadow", "reviewed_trial", "production"), default="shadow")
+            sub.add_argument("--days", type=int, default=14)
+            sub.add_argument("--topic-count", type=int, default=5)
+            sub.add_argument("--intent", default="")
+        elif name != "review-legacy":
+            sub.add_argument("run_id")
+        if name in ("revise", "approve", "trial", "publish", "review-legacy"):
+            sub.add_argument("draft_id")
+            sub.add_argument("content_sha256", help="full SHA-256 from the delivered current review")
+        if name in ("request", "select", "review", "revise", "approve", "trial", "publish", "review-legacy"):
+            sub.add_argument("--reviewer", required=True, help="stable operator identity, e.g. cli:dongwoo")
+        if name == "revise":
+            sub.add_argument("--instruction", default="")
+            sub.add_argument("--section-id")
+        if name == "select":
+            sub.add_argument("--rank", type=int, required=True)
+        if name == "publish":
+            sub.add_argument("--reconcile", action="store_true")
+        if name == "review-legacy":
+            sub.add_argument("--review-root", type=Path, required=True)
+    args = parser.parse_args(argv)
+    if args.command in ("bot", "send-briefing", "test-pipeline"):
+        if args.command == "test-pipeline":
+            asyncio.run(test_pipeline(output_root=args.output_root))
+        elif args.command == "send-briefing":
+            asyncio.run(TrendBotApp().trigger_briefing())
+        else:
+            TrendBotApp().run()
+        return 0
+    workflow = service or WorkflowService(args.workflow_root)
+    def invoke(operation):
+        from contextlib import redirect_stdout
+        import inspect
+        with redirect_stdout(sys.stderr):
+            value = operation()
+            return asyncio.run(value) if inspect.isawaitable(value) else value
+    try:
+        if args.command == "request":
+            result = invoke(lambda: workflow.request(mode=args.mode, days=args.days, topic_count=args.topic_count, intent=args.intent, reviewer=args.reviewer))
+        elif args.command == "status":
+            result = invoke(lambda: workflow.status(args.run_id))
+        elif args.command == "resume":
+            result = invoke(lambda: workflow.resume(args.run_id))
+        elif args.command == "select":
+            result = invoke(lambda: workflow.select(args.run_id, args.rank, reviewer=args.reviewer))
+        elif args.command == "review":
+            result = invoke(lambda: workflow.deliver(args.run_id, reviewer=args.reviewer))
+            print(json.dumps({"success": True, "review": result}, ensure_ascii=False))
+            return 0
+        elif args.command == "review-legacy":
+            from src.editorial.store import DraftStore
+            result = invoke(lambda: workflow.review_legacy(DraftStore(args.review_root), args.draft_id, args.content_sha256, reviewer=args.reviewer))
+            print(json.dumps({"success": True, "review": result}, ensure_ascii=False))
+            return 0
+        elif args.command == "revise":
+            result = invoke(lambda: workflow.revise(args.run_id, args.draft_id, args.content_sha256, reviewer=args.reviewer, instruction=args.instruction, section_id=args.section_id))
+        elif args.command in ("approve", "trial"):
+            result = invoke(lambda: getattr(workflow, args.command)(args.run_id, args.draft_id, args.content_sha256, reviewer=args.reviewer))
+        else:
+            result = invoke(lambda: workflow.publish(args.run_id, args.draft_id, args.content_sha256, reviewer=args.reviewer, reconcile=args.reconcile))
+            print(json.dumps(result, ensure_ascii=False))
+            return 0 if result["success"] and result["sync_status"] == "SYNCED" else 1
+        print(json.dumps({"success": True, "run": result.model_dump(mode="json")}, ensure_ascii=False))
+        return 0
+    except (ValueError, OSError, KeyError, TypeError) as error:
+        print(json.dumps({"success": False, "status": "BLOCKED", "error": str(error)}, ensure_ascii=False))
+        return 1
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

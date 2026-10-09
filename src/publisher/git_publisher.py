@@ -222,6 +222,8 @@ class GitPublisher:
                 raise ValueError("explicit approved content hash mismatch; APPROVED draft required")
             if artifact.status not in {DraftStatus.APPROVED, DraftStatus.PUBLISHED}:
                 raise ValueError("only APPROVED reviewed drafts may be published")
+            from src.workflow.publication import authorize_publication
+            authorize_publication(store, artifact, reserve=True)
             directory = store.directory(draft_id)
             lock_path = directory / "publication.lock"
             try:

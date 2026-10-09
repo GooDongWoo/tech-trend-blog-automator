@@ -26,6 +26,7 @@ from src.editorial.pipeline import EditorialPipeline, approval_callback, decode_
 from src.editorial.models import DraftStatus
 from src.publisher.git_publisher import GitPublisher
 from src.publisher.obsidian_sync import ObsidianSync
+from src.workflow.service import WorkflowService, ProductionAdapters
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -34,32 +35,23 @@ logger = logging.getLogger(__name__)
 class TrendBotApp:
     """Telegram Bot application managing daily briefings, user selection, and blog publishing."""
 
-    def __init__(self, *, pipeline: EditorialPipeline | None = None, publisher=None, sync=None):
+    def __init__(self, *, pipeline: EditorialPipeline | None = None, publisher=None, sync=None, workflow=None):
         self.profiler = InterestProfiler()
         self.collector = TrendOrchestrator()
         self.matcher = TrendMatcher()
         self.pipeline = pipeline or EditorialPipeline()
         self.publisher = publisher or GitPublisher()
         self.sync = sync or ObsidianSync()
+        self.workflow = workflow or WorkflowService(self.pipeline.store.root / 'workflow', writer=self.pipeline.writer,
+            adapters=ProductionAdapters(self.profiler, self.collector, self.matcher), publisher=self.publisher, sync=self.sync)
         self.scheduler = AsyncIOScheduler()
 
         # Cache of current curated topics
         self.current_topics: Dict[int, CuratedTopic] = {}
 
     def publication_block_reason(self):
-        if settings.editorial_shadow_mode:
-            return "shadow mode: 전체 초안·보고서를 검토할 수 있으며 발행은 차단됩니다."
-        if not settings.editorial_cutover_authorized:
-            return "cutover authorization required: 별도 운영 전환 승인이 필요합니다."
-        try:
-            from scripts.evaluate_drafts import load_json, release_gate
-            report = load_json(settings.editorial_quality_gate_report)
-            gate = release_gate(report["runs"], report["human_reviews"], set(report["required_topic_types"]))
-            if not gate["eligible"]:
-                return "quality gate blocked: " + ", ".join(gate["reasons"])
-        except (OSError, ValueError, KeyError, TypeError):
-            return "quality gate report unavailable or invalid"
-        return None
+        from src.workflow.publication import production_block_reason
+        return production_block_reason()
 
     async def start_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /start command."""
@@ -76,67 +68,33 @@ class TrendBotApp:
         )
 
     async def trigger_briefing(self, chat_id: Optional[str] = None, context: Optional[ContextTypes.DEFAULT_TYPE] = None):
-        """Fetch interests, collect trends, curate Top 5, and send briefing card."""
-        target_chat_id = chat_id or settings.telegram_chat_id
-        if not target_chat_id:
-            logger.warning("No target chat_id configured.")
-            return
-
+        """Persist a fresh shadow run; identify the destination before private profiling."""
+        chat, user = self.reviewer_identity()
+        target_chat_id = str(chat_id or settings.telegram_chat_id)
+        if target_chat_id != chat:
+            raise ValueError('unauthorized review chat')
         bot = context.bot if context else None
-
-        # 1. Profile user interests
-        profile = self.profiler.build_profile()
-
-        # 2. Collect trends
-        raw_items = await self.collector.collect_all(limit_per_source=8)
-
-        # 3. Curate Top 5
-        curated = self.matcher.curate_top_5(profile, raw_items)
-        self.current_topics = {t.rank: t for t in curated}
-        topic_ids = {t.rank: self.pipeline.register_topic(t, user_context=profile.user_context) for t in curated}
-
-        # 4. Format Message & Keyboard
-        card_text = self.matcher.format_telegram_card(curated)
-
-        keyboard = [
-            [
-                InlineKeyboardButton(f"{t.rank}번 선택", callback_data=topic_callback(topic_ids[t.rank]))
-                for t in curated[:3]
-            ],
-            [
-                InlineKeyboardButton(f"{t.rank}번 선택", callback_data=topic_callback(topic_ids[t.rank]))
-                for t in curated[3:]
-            ] + [InlineKeyboardButton("🔄 새로고침", callback_data="refresh_topics")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
         if not bot and settings.telegram_bot_token:
             from telegram import Bot
             bot = Bot(token=settings.telegram_bot_token)
-
-        if bot:
-            try:
-                await bot.send_message(
-                    chat_id=target_chat_id,
-                    text=card_text,
-                    reply_markup=reply_markup,
-                    parse_mode=ParseMode.MARKDOWN,
-                    disable_web_page_preview=True
-                )
-            except Exception as e:
-                logger.warning(f"Markdown send failed ({e}), falling back to plain text.")
-                await bot.send_message(
-                    chat_id=target_chat_id,
-                    text=card_text,
-                    reply_markup=reply_markup,
-                    disable_web_page_preview=True
-                )
-
+        if not bot:
+            raise ValueError('Telegram delivery unavailable')
+        run = await self.workflow.request(reviewer=f'telegram:{chat}:{user}', intent='Telegram topic briefing')
+        run = await self.workflow.resume(run.id)
+        curated = [CuratedTopic.model_validate(t) for t in run.checkpoints.get('curation', [])]
+        self.current_topics = {t.rank: t for t in curated}
+        card_text = self.matcher.format_telegram_card(curated) if curated else f'{run.status}: {run.id}; resume this saved run after recovery.'
+        keyboard = [[InlineKeyboardButton(f'{t.rank}번 선택', callback_data=f'w:{run.id}:{t.rank}')] for t in curated]
+        keyboard.append([InlineKeyboardButton('새 run으로 새로고침', callback_data='refresh_topics')])
+        await bot.send_message(chat_id=target_chat_id, text=card_text, reply_markup=InlineKeyboardMarkup(keyboard), disable_web_page_preview=True)
+        return run
 
     async def now_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /now command."""
-        await update.message.reply_text("🔍 최근 Obsidian 관심사를 분석하고 최신 트렌드를 수집하고 있습니다. 잠시만 기다려주세요...")
-        await self.trigger_briefing(chat_id=str(update.effective_chat.id), context=context)
+        chat, user = self.reviewer_identity()
+        if str(update.effective_chat.id) != chat or str(update.effective_user.id) != user:
+            raise ValueError('unauthorized reviewer')
+        await update.message.reply_text('최근 관심 기록과 트렌드를 수집합니다.')
+        await self.trigger_briefing(chat_id=chat, context=context)
 
     def reviewer_identity(self):
         chat = str(settings.telegram_chat_id)
@@ -149,99 +107,85 @@ class TrendBotApp:
     async def send_review(self, bot, chat_id, artifact):
         chat, user = self.reviewer_identity()
         if str(chat_id) != chat:
-            raise ValueError("unauthorized review chat")
-        directory = artifact.content_path.parent
-        # Full files are delivered before any approval button is offered.
-        for path in (artifact.content_path, directory / "review.md", *artifact.media_paths):
-            if path == artifact.content_path and path.stat().st_size == 0:
-                continue  # Blocked generation can legitimately have no article body.
-            with path.open("rb") as document:
-                await bot.send_document(chat_id=chat_id, document=document, filename=path.name)
-        self.pipeline.bind_reviewer(artifact.id, chat, user)
-        packet = json.loads(artifact.evidence_path.read_text(encoding="utf-8"))
-        sources = (packet or {}).get("sources", [])
-        report = json.loads(artifact.report_path.read_text(encoding="utf-8"))
-        issues = report.get("reasons", [])
-        warnings = report.get("warnings", [])
-        rows = [[InlineKeyboardButton(source["title"][:80], url=source["url"])]
-                for source in sources if source["url"].startswith(("https://", "http://"))]
+            raise ValueError('unauthorized review chat')
+        identity = f'telegram:{chat}:{user}'
+        async def sender(current):
+            for path in (current.content_path, current.content_path.parent / 'review.md', *current.media_paths):
+                if path == current.content_path and path.stat().st_size == 0:
+                    continue
+                with path.open('rb') as document:
+                    await bot.send_document(chat_id=chat, document=document, filename=path.name)
+        try:
+            run = self.workflow.find_run(artifact.id)
+        except ValueError:
+            # A historic local bundle requires explicit complete delivery first.
+            await self.workflow.review_legacy(self.pipeline.store, artifact.id, artifact.content_sha256, reviewer=identity, sender=sender)
+            run = self.workflow.find_run(artifact.id)
+        else:
+            await self.workflow.deliver(run.id, reviewer=identity, sender=sender)
+        packet = json.loads(artifact.evidence_path.read_text(encoding='utf-8')) or {}
+        rows = [[InlineKeyboardButton(source['title'][:80], url=source['url'])]
+                for source in packet.get('sources', []) if source['url'].startswith(('http://', 'https://'))]
         if artifact.status == DraftStatus.REVIEW_READY:
-            rows.append([InlineKeyboardButton("전체 검토 후 승인", callback_data=approval_callback(artifact))])
-        rows.append([InlineKeyboardButton("새 수정본 생성", callback_data=f"r:{artifact.id}")])
-        text = (f"초안 상태: {artifact.status.value}\nID: {artifact.id}\n"
-                f"전체 초안: {artifact.content_path}\n근거·검증 보고서: {directory / 'review.md'}\n"
-                f"SHA-256: {artifact.content_sha256}\n원문: {len(sources)}개\n"
-                f"미해결 사항: {', '.join(issues)[:800] or '없음'}\n"
-                f"검토 참고: {', '.join(warnings)[:500] or '없음'}\n"
-                "첨부한 전체 본문과 근거 보고서를 확인하세요. 승인은 이 초안에만 기록됩니다.")
-        if reason := self.publication_block_reason():
-            text += "\n" + reason
-        await bot.send_message(chat_id=chat_id, text=text, reply_markup=InlineKeyboardMarkup(rows),
-                               disable_web_page_preview=True)
+            rows.append([InlineKeyboardButton('전체 검토 후 승인', callback_data=approval_callback(artifact))])
+        rows.append([InlineKeyboardButton('새 수정본 생성', callback_data='r:' + approval_callback(artifact)[2:])])
+        await bot.send_message(chat_id=chat, text=f'초안 상태: {artifact.status.value}\n전체 초안: {artifact.content_path}\nRun: {run.id}\nSHA-256: {artifact.content_sha256}\n전체 본문과 근거 보고서를 첨부했습니다. 현재 run 모드: {run.mode}', reply_markup=InlineKeyboardMarkup(rows))
 
     async def handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
         try:
             chat, user = self.reviewer_identity()
-            if str(query.message.chat_id) != chat or str(getattr(query.from_user, "id", "")) != user:
-                raise ValueError("unauthorized reviewer")
+            if str(query.message.chat_id) != chat or str(getattr(query.from_user, 'id', '')) != user:
+                raise ValueError('unauthorized reviewer')
         except (ValueError, AttributeError) as error:
-            await query.answer(f"처리 차단: {error}", show_alert=True)
+            await query.answer(f'처리 차단: {error}', show_alert=True)
             return
         await query.answer()
+        identity = f'telegram:{chat}:{user}'
         try:
-            data = query.data or ""
-            if data == "refresh_topics":
+            data = query.data or ''
+            if data == 'refresh_topics':
                 await self.trigger_briefing(chat_id=chat, context=context)
-            elif data.startswith("select_"):
-                raise ValueError("obsolete topic selection; refresh the briefing to bind its input")
-            elif data.startswith("s:"):
-                topic_id = decode_topic_callback(data)
-                await query.edit_message_text("원문과 근거를 확인해 로컬 검토 초안을 생성합니다.")
-                artifact = await self.pipeline.generate(topic_id)
-                await self.send_review(context.bot, query.message.chat_id, artifact)
-            elif data.startswith("r:"):
-                draft_id = data.removeprefix("r:")
-                self.pipeline.check_reviewer(draft_id, chat, user)
-                artifact = await self.pipeline.retry(draft_id)
-                await self.send_review(context.bot, query.message.chat_id, artifact)
-            elif data.startswith("a:"):
-                draft_id, expected_hash = decode_callback(data)
-                self.pipeline.check_reviewer(draft_id, chat, user)
-                artifact = self.pipeline.get_draft(draft_id)
-                if artifact.status == DraftStatus.REVIEW_READY:
-                    artifact = self.pipeline.approve(draft_id, expected_hash)
-                elif artifact.status not in {DraftStatus.APPROVED, DraftStatus.PUBLISHED} or artifact.content_sha256 != expected_hash:
-                    raise ValueError("invalid approval state/hash")
-                callback = "p:" + approval_callback(artifact)[2:]
-                if reason := self.publication_block_reason():
-                    await query.edit_message_text(f"검토 승인 기록: {artifact.id}\n상태: {artifact.status.value}\n발행 차단: {reason}")
-                    return
-                await query.edit_message_text(f"검토 승인 기록: {artifact.id}\n상태: {artifact.status.value}\n아래 버튼은 승인한 초안을 Git 발행하고 push 성공 후 Vault에 동기화합니다.",
-                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("승인한 초안 발행 / 동기화 재시도", callback_data=callback)]]))
-            elif data.startswith(("p:", "c:")):
-                draft_id, expected_hash = decode_callback("a:" + data[2:])
-                self.pipeline.check_reviewer(draft_id, chat, user)
-                if reason := self.publication_block_reason():
-                    raise ValueError(reason)
-                result = await asyncio.to_thread(self.publisher.publish, self.pipeline.store, draft_id, expected_hash,
-                                                 sync=self.sync, reconcile=data.startswith("c:"))
-                if result["success"]:
-                    text = f"발행 상태: PUBLISHED\nCommit: {result['commit_sha']}\nVault: {result['sync_status']}"
-                    if result.get("sync_error"):
-                        text += "\n" + result["sync_error"]
-                    if result.get("local_state_error"):
-                        text += "\n로컬 상태 기록 실패: " + result["local_state_error"]
+                return
+            if data.startswith('w:'):
+                _, run_id, rank = data.split(':')
+                run = await self.workflow.select(run_id, int(rank), reviewer=identity)
+                if run.draft_id:
+                    await self.send_review(context.bot, chat, self.workflow.pipeline(run).get_draft(run.draft_id))
                 else:
-                    text = f"발행 차단: {result['status']}\n{result['error']}"
-                prefix = "c:" if result["status"] == "PUSH_UNCERTAIN" else "p:"
-                label = "원격 SHA로 발행 여부 확인" if prefix == "c:" else "발행 / 동기화 재시도"
-                rows = [] if result.get("sync_status") == "SYNCED" else [[InlineKeyboardButton(label, callback_data=prefix + data[2:])]]
-                await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(rows))
-            else:
-                raise ValueError("invalid or obsolete callback; open a current review")
-        except (ValueError, OSError, AttributeError) as error:
-            await query.edit_message_text(f"처리 차단: {error}")
+                    await query.edit_message_text(f'{run.status}: {run.id}; resume after research recovery.')
+                return
+            if data.startswith(('s:', 'select_')):
+                raise ValueError('obsolete topic selection; refresh the briefing to bind a durable run')
+            prefix = data[:2]
+            draft_id, expected_hash = decode_callback('a:' + data[2:])
+            run = self.workflow.find_run(draft_id)
+            self.workflow._identity(run, identity)
+            if prefix == 'r:':
+                run = await self.workflow.revise(run.id, draft_id, expected_hash, reviewer=identity)
+                await self.send_review(context.bot, chat, self.workflow.pipeline(run).get_draft(run.draft_id))
+                return
+            if prefix == 'a:':
+                run = await asyncio.to_thread(self.workflow.approve, run.id, draft_id, expected_hash, reviewer=identity)
+                rows = []
+                if run.mode == 'shadow':
+                    rows.append([InlineKeyboardButton('이 승인본 한 편을 reviewed trial로 발행 허용', callback_data='t:' + data[2:])])
+                else:
+                    rows.append([InlineKeyboardButton('승인본 발행 / 동기화 재시도', callback_data='p:' + data[2:])])
+                await query.edit_message_text(f'검토 승인 기록: {draft_id}\nMode: {run.mode}', reply_markup=InlineKeyboardMarkup(rows))
+                return
+            if prefix == 't:':
+                await asyncio.to_thread(self.workflow.trial, run.id, draft_id, expected_hash, reviewer=identity)
+                await query.edit_message_text('이 승인본 한 편의 reviewed trial을 기록했습니다. 발행은 다음 버튼으로 실행합니다.', reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('승인본 발행', callback_data='p:' + data[2:])]]))
+                return
+            if prefix not in ('p:', 'c:'):
+                raise ValueError('invalid callback')
+            result = await self.workflow.publish(run.id, draft_id, expected_hash, reviewer=identity, reconcile=prefix == 'c:')
+            retry = 'c:' if result['status'] == 'PUSH_UNCERTAIN' else 'p:'
+            rows = [] if result.get('sync_status') == 'SYNCED' and not result.get('local_state_error') else [[InlineKeyboardButton('원격 확인 / 재시도', callback_data=retry + data[2:])]]
+            await query.edit_message_text(json.dumps(result, ensure_ascii=False), reply_markup=InlineKeyboardMarkup(rows))
+        except (ValueError, OSError, AttributeError, KeyError, TypeError) as error:
+            await query.edit_message_text(f'처리 차단: {error}')
 
     def run(self):
         """Start the Telegram bot and background scheduler."""

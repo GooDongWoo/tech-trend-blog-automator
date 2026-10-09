@@ -225,9 +225,14 @@ def test_selection_and_blocked_review_never_offer_approval(tmp_path, drafting_in
     pipeline, topic_id = setup_pipeline(tmp_path, drafting_input, payload={})
     app = TrendBotApp(pipeline=pipeline)
     app.current_topics = {1: pipeline.store.topic(topic_id)}
-    query = SimpleNamespace(data=api().topic_callback(topic_id), answer=AsyncMock(), edit_message_text=AsyncMock(),
-        message=SimpleNamespace(chat_id=7), from_user=SimpleNamespace(id=7))
+    from src.profiler.interest_profiler import UserProfile
+    app.profiler.build_profile = lambda **kwargs: UserProfile(core_interests=[], knowledge_depth={}, avoid_topics=[], target_domains=[], search_keywords=[])
+    app.collector.collect_all = AsyncMock(return_value=[])
+    app.matcher.curate_top_5 = lambda *args: [pipeline.store.topic(topic_id)]
     bot = SimpleNamespace(send_message=AsyncMock(), send_document=AsyncMock())
+    run = asyncio.run(app.trigger_briefing(context=SimpleNamespace(bot=bot)))
+    query = SimpleNamespace(data=f'w:{run.id}:1', answer=AsyncMock(), edit_message_text=AsyncMock(),
+        message=SimpleNamespace(chat_id=7), from_user=SimpleNamespace(id=7))
     asyncio.run(app.handle_callback(SimpleNamespace(callback_query=query), SimpleNamespace(bot=bot)))
     card = bot.send_message.call_args.kwargs
     assert "NEEDS_REVISION" in card["text"]
@@ -258,7 +263,7 @@ def test_empty_blocked_draft_still_delivers_report_and_retry(tmp_path, drafting_
     card = bot.send_message.call_args.kwargs
     assert artifact.status.value in card["text"]
     callbacks = [button.callback_data for row in card["reply_markup"].inline_keyboard for button in row if button.callback_data]
-    assert f"r:{artifact.id}" in callbacks
+    assert "r:" + api().approval_callback(artifact)[2:] in callbacks
     assert not any(callback.startswith("a:") for callback in callbacks)
 
 

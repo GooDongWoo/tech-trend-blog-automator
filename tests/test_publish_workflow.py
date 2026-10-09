@@ -82,8 +82,15 @@ def publication(tmp_path, monkeypatch, drafting_input):
         publisher=publisher, sync=sync, events=events, state=state)
 
 
-def approve(p):
-    p.artifact = p.pipeline.approve(p.artifact.id, p.artifact.content_sha256)
+def approve(p, reviewer='cli:fixture'):
+    # Explicit local fixture authorization; production has no offline bypass.
+    from src.workflow.service import WorkflowService
+    service = WorkflowService(p.pipeline.store.root / 'workflow')
+    asyncio.run(service.review_legacy(p.pipeline.store, p.artifact.id, p.artifact.content_sha256, reviewer=reviewer))
+    run = service.find_run(p.artifact.id)
+    service.approve(run.id, p.artifact.id, p.artifact.content_sha256, reviewer=reviewer)
+    service.trial(run.id, p.artifact.id, p.artifact.content_sha256, reviewer=reviewer)
+    p.artifact = p.pipeline.get_draft(p.artifact.id)
 
 
 def publish(p, **kwargs):
@@ -318,7 +325,11 @@ def test_approved_bot_offers_hash_bound_publish_and_checks_reviewer(publication,
     p = publication
     monkeypatch.setattr(settings, "telegram_chat_id", "7")
     app = TrendBotApp(pipeline=p.pipeline, publisher=p.publisher, sync=p.sync)
-    p.pipeline.bind_reviewer(p.artifact.id, "7", "7")
+    bot = SimpleNamespace(send_message=AsyncMock(), send_document=AsyncMock())
+    asyncio.run(app.send_review(bot, "7", p.artifact))
+    run = app.workflow.find_run(p.artifact.id)
+    run.mode = 'production'  # This fixture explicitly supplies a test-only cutover.
+    app.workflow.store.save(run)
     query = SimpleNamespace(data=approval_callback(p.artifact), answer=AsyncMock(), edit_message_text=AsyncMock(),
         message=SimpleNamespace(chat_id=7), from_user=SimpleNamespace(id=7))
     asyncio.run(app.handle_callback(SimpleNamespace(callback_query=query), SimpleNamespace(bot=None)))
@@ -467,7 +478,7 @@ def test_publish_callback_rejects_changed_approved_content(publication, monkeypa
     from src.bot.telegram_bot import TrendBotApp
     p = publication
     monkeypatch.setattr(settings, "telegram_chat_id", "7")
-    approve(p)
+    approve(p, reviewer='telegram:7:7')
     p.pipeline.bind_reviewer(p.artifact.id, "7", "7")
     p.artifact.content_path.write_text("changed after approval")
     query = SimpleNamespace(data="p:" + approval_callback(p.artifact)[2:], answer=AsyncMock(), edit_message_text=AsyncMock(),

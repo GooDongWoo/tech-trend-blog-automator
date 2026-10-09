@@ -8,7 +8,7 @@ from config import settings
 from src.llm.client import ModelClient
 from src.curator.matcher import CuratedTopic
 from src.editorial.brief import build_brief
-from src.editorial.draft import LLMClient, write_draft
+from src.editorial.draft import LLMClient, write_draft, revise_draft
 from src.editorial.media import MemeCatalog, apply_media, load_catalog
 from src.editorial.models import ResearchBlocked, ResearchPacket, UserContext, ValidationIssue
 from src.editorial.validate import parse_frontmatter
@@ -41,8 +41,8 @@ class BlogWriter:
     def generate(self, prompt: str) -> str:
         return self._call_llm(prompt)
 
-    async def generate_post(self, topic: CuratedTopic, *, user_context: UserContext | None = None, persist_artifacts: bool = True) -> dict[str, Any]:
-        research = await self.researcher.research(topic)
+    async def generate_post(self, topic: CuratedTopic, *, user_context: UserContext | None = None, persist_artifacts: bool = True, research: dict | None = None, revision: dict | None = None) -> dict[str, Any]:
+        research = research if research is not None else await self.researcher.research(topic)
         packet = research.get("packet")
         if research.get("status") == "NEEDS_RESEARCH":
             return {**research, "publishable": False}
@@ -56,11 +56,21 @@ class BlogWriter:
             def generate(self, prompt):
                 return writer.review_generate(prompt)
         reviewer = Reviewer() if self.default_reviewer else self.reviewer
-        draft = await asyncio.to_thread(write_draft, brief, packet, self.llm, reviewer=reviewer)
+        if revision is not None:
+            from src.editorial.models import DraftText
+            catalog = self.media_catalog if self.media_catalog is not None else load_catalog()
+            draft = await asyncio.to_thread(revise_draft, brief, packet, self.llm, DraftText.model_validate(revision['baseline']), revision['instruction'],
+                section_id=revision.get('section_id'), reviewer=reviewer, media_catalog=catalog)
+        else:
+            draft = await asyncio.to_thread(write_draft, brief, packet, self.llm, reviewer=reviewer)
         final_failure = 'media_catalog_unavailable'
         try:
             catalog = self.media_catalog if self.media_catalog is not None else load_catalog()
-            draft, media_choice = apply_media(brief, draft, catalog)
+            if revision is not None:
+                from src.editorial.media import MediaChoice
+                media_choice = MediaChoice.model_validate(revision['media_choice']) if revision.get('media_choice') else None
+            else:
+                draft, media_choice = apply_media(brief, draft, catalog)
             if media_choice is not None:
                 final_failure = 'final_grounding_failed'
                 review = await asyncio.to_thread(review_draft, draft, packet, reviewer) if reviewer is not None else None
