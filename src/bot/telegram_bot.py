@@ -67,26 +67,24 @@ class TrendBotApp:
             parse_mode=ParseMode.MARKDOWN
         )
 
-    async def trigger_briefing(self, chat_id: Optional[str] = None, context: Optional[ContextTypes.DEFAULT_TYPE] = None):
-        """Persist a fresh shadow run; identify the destination before private profiling."""
+    async def trigger_briefing(self, chat_id: Optional[str] = None, context: Optional[ContextTypes.DEFAULT_TYPE] = None,
+                               *, run_id=None, mode='shadow', days=14, topic_count=5):
+        """Create a typed configured briefing or resume the same frozen delivery."""
+        from src.workflow.telegram import briefing_message_kwargs
         chat, user = self.reviewer_identity()
-        target_chat_id = str(chat_id or settings.telegram_chat_id)
-        if target_chat_id != chat:
+        if str(chat_id or settings.telegram_chat_id) != chat:
             raise ValueError('unauthorized review chat')
         bot = context.bot if context else None
-        if not bot and settings.telegram_bot_token:
-            from telegram import Bot
-            bot = Bot(token=settings.telegram_bot_token)
-        if not bot:
-            raise ValueError('Telegram delivery unavailable')
-        run = await self.workflow.request(reviewer=f'telegram:{chat}:{user}', intent='Telegram topic briefing')
-        run = await self.workflow.resume(run.id)
+        sender = None
+        if bot is not None:
+            async def sender(payload):
+                await bot.send_message(**briefing_message_kwargs(payload))
+        if run_id is None:
+            run = await self.workflow.create_briefing(mode=mode, days=days, topic_count=topic_count, sender=sender)
+        else:
+            run = await self.workflow.resume(run_id, briefing_sender=sender)
         curated = [CuratedTopic.model_validate(t) for t in run.checkpoints.get('curation', [])]
         self.current_topics = {t.rank: t for t in curated}
-        card_text = self.matcher.format_telegram_card(curated) if curated else f'{run.status}: {run.id}; resume this saved run after recovery.'
-        keyboard = [[InlineKeyboardButton(f'{t.rank}번 선택', callback_data=f'w:{run.id}:{t.rank}')] for t in curated]
-        keyboard.append([InlineKeyboardButton('새 run으로 새로고침', callback_data='refresh_topics')])
-        await bot.send_message(chat_id=target_chat_id, text=card_text, reply_markup=InlineKeyboardMarkup(keyboard), disable_web_page_preview=True)
         return run
 
     async def now_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -94,15 +92,12 @@ class TrendBotApp:
         if str(update.effective_chat.id) != chat or str(update.effective_user.id) != user:
             raise ValueError('unauthorized reviewer')
         await update.message.reply_text('최근 관심 기록과 트렌드를 수집합니다.')
-        await self.trigger_briefing(chat_id=chat, context=context)
+        run = await self.trigger_briefing(chat_id=chat, context=context)
+        await update.message.reply_text(f'Run: {run.id}\nState: {run.status}')
 
     def reviewer_identity(self):
-        chat = str(settings.telegram_chat_id)
-        # Private chat IDs are user IDs. Groups need an explicit reviewer user.
-        user = str(settings.telegram_reviewer_user_id or (chat if chat.isdigit() else ""))
-        if not chat or not user:
-            raise ValueError("Telegram reviewer chat/user is not configured")
-        return chat, user
+        from src.workflow.telegram import configured_recipient
+        return configured_recipient()
 
     async def send_review(self, bot, chat_id, artifact):
         chat, user = self.reviewer_identity()

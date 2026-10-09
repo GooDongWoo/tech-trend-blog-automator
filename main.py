@@ -52,13 +52,13 @@ def main(argv=None, *, service=None):
     from src.workflow.models import DraftArgumentParser
     parser = DraftArgumentParser(description="Durable evidence-led editorial workflow")
     commands = parser.add_subparsers(dest="command", required=True)
-    for name in ("bot", "send-briefing", "test-pipeline"):
+    for name in ("bot", "test-pipeline"):
         sub = commands.add_parser(name)
         sub.add_argument("--output-root", type=Path)
-    for name in ("request", "status", "resume", "select", "review", "revise", "approve", "trial", "publish", "review-legacy"):
+    for name in ("request", "briefing", "send-briefing", "status", "resume", "select", "review", "revise", "approve", "trial", "publish", "review-legacy"):
         sub = commands.add_parser(name)
         sub.add_argument("--workflow-root", type=Path)
-        if name == "request":
+        if name in ("request", "briefing", "send-briefing"):
             sub.add_argument("--mode", choices=("shadow", "reviewed_trial", "production"), default="shadow")
             sub.add_argument("--days", type=int, default=14)
             sub.add_argument("--topic-count", type=int, default=5)
@@ -80,11 +80,9 @@ def main(argv=None, *, service=None):
         if name == "review-legacy":
             sub.add_argument("--review-root", type=Path, required=True)
     args = parser.parse_args(argv)
-    if args.command in ("bot", "send-briefing", "test-pipeline"):
+    if args.command in ("bot", "test-pipeline"):
         if args.command == "test-pipeline":
             asyncio.run(test_pipeline(output_root=args.output_root))
-        elif args.command == "send-briefing":
-            asyncio.run(TrendBotApp().trigger_briefing())
         else:
             TrendBotApp().run()
         return 0
@@ -98,6 +96,8 @@ def main(argv=None, *, service=None):
     try:
         if args.command == "request":
             result = invoke(lambda: workflow.request(mode=args.mode, days=args.days, topic_count=args.topic_count, intent=args.intent, reviewer=args.reviewer))
+        elif args.command in ("briefing", "send-briefing"):
+            result = invoke(lambda: workflow.create_briefing(mode=args.mode, days=args.days, topic_count=args.topic_count, intent=args.intent or 'Telegram topic briefing'))
         elif args.command == "status":
             result = invoke(lambda: workflow.status(args.run_id))
         elif args.command == "resume":

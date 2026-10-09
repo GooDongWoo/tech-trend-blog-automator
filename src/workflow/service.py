@@ -8,7 +8,7 @@ import secrets
 import time
 from datetime import datetime, timezone
 
-from src.workflow.models import WorkflowRun
+from src.workflow.models import WorkflowRun, TelegramBriefing, BriefingPayload
 from src.workflow.store import RunStore, atomic_json
 from src.editorial.pipeline import EditorialPipeline
 from src.editorial.models import DraftStatus, ResearchPacket, ResearchBlocked, SourceRecord
@@ -38,11 +38,19 @@ class ProductionAdapters:
         profiler.artifact_dir = directory / 'model-calls'
         return profiler.build_profile(days=days)
     async def collect(self):
-        return await self.collector.collect_all(limit_per_source=8)
+        items = await self.collector.collect_all(limit_per_source=8)
+        usable = [item for item in items if item.title.strip() and item.url.startswith(('https://', 'http://'))]
+        if not usable:
+            return {'status': 'NEEDS_RESEARCH', 'reasons': ['collection_empty_or_unavailable']}
+        return usable
     def curate(self, profile, items, count, directory):
         matcher = copy.copy(self.matcher)
         matcher.artifact_dir = directory / 'model-calls'
-        return matcher.curate_top_5(UserProfile.model_validate(profile), [TrendItem.model_validate(x) for x in items])[:count]
+        topics = matcher.curate_top_5(UserProfile.model_validate(profile), [TrendItem.model_validate(x) for x in items])[:count]
+        usable = [topic for topic in topics if topic.title.strip() and topic.url.startswith(('https://', 'http://'))]
+        if not usable or len({topic.rank for topic in usable}) != len(usable):
+            return {'status': 'NEEDS_RESEARCH', 'reasons': ['curation_no_selectable_topics']}
+        return usable
     async def research(self, pipeline, topic_id, directory):
         researcher = copy.copy(pipeline.writer.researcher)
         researcher.artifact_dir = directory / 'research'
@@ -58,11 +66,12 @@ class ProductionAdapters:
 
 
 class WorkflowService:
-    def __init__(self, root=None, *, writer=None, adapters=None, publisher=None, sync=None):
+    def __init__(self, root=None, *, writer=None, adapters=None, publisher=None, sync=None, briefing_sender=None):
         self.store = RunStore(root or Path(__file__).resolve().parents[2] / 'temp' / 'workflow')
         self.writer = writer
         self.adapters = adapters or ProductionAdapters()
         self.publisher, self.sync = publisher, sync
+        self.briefing_sender = briefing_sender
     def pipeline(self, run):
         return EditorialPipeline(Path(run.review_root) if run.review_root else self.store.directory(run.id) / 'review', writer=self.writer)
     def status(self, run_id):
@@ -94,10 +103,58 @@ class WorkflowService:
                 self._event(run, 'approval_invalidated', 'failure')
             raise
         return artifact
-    async def request(self, *, mode='shadow', days=14, topic_count=5, reviewer=None, intent=''):
-        run = WorkflowRun(id=secrets.token_hex(8), mode=mode, days=days, topic_count=topic_count, reviewer=reviewer, intent=intent)
+    async def request(self, *, mode='shadow', days=14, topic_count=5, reviewer=None, intent='', briefing=None):
+        if briefing is not None:
+            from src.workflow.telegram import configured_recipient
+            briefing = TelegramBriefing.model_validate(briefing)
+            chat, user = configured_recipient()
+            if (briefing.chat_id, briefing.user_id) != (chat, user) or reviewer != f'telegram:{chat}:{user}':
+                raise ValueError('unauthorized Telegram briefing recipient/reviewer')
+        run = WorkflowRun(id=secrets.token_hex(8), mode=mode, days=days, topic_count=topic_count, reviewer=reviewer, intent=intent, briefing=briefing)
         self._event(run, 'request')
         return run
+    async def create_briefing(self, *, mode='shadow', days=14, topic_count=5, intent='Telegram topic briefing', sender=None):
+        from src.workflow.telegram import configured_recipient
+        chat, user = configured_recipient()
+        run = await self.request(mode=mode, days=days, topic_count=topic_count, reviewer=f'telegram:{chat}:{user}', intent=intent,
+            briefing=TelegramBriefing(chat_id=chat, user_id=user))
+        return await self.resume(run.id, briefing_sender=sender)
+
+    async def _deliver_briefing(self, run, sender=None):
+        from src.workflow.telegram import configured_recipient, send_briefing
+        from src.editorial.store import bound_input_hash
+        reason = 'telegram_briefing_delivery_failed'
+        started = time.monotonic()
+        try:
+            chat, user = configured_recipient()
+            if (run.briefing.chat_id, run.briefing.user_id) != (chat, user) or run.reviewer != f'telegram:{chat}:{user}':
+                reason = 'telegram_briefing_recipient_changed'
+                raise ValueError(reason)
+            if run.briefing.delivered:
+                return True
+            if run.briefing.payload is None:
+                topics = [CuratedTopic.model_validate(t) for t in run.checkpoints['curation']]
+                rows = [[{'text': f'{t.rank}번 선택', 'callback_data': f'w:{run.id}:{t.rank}'}] for t in topics]
+                rows.append([{'text': '새 run으로 새로고침', 'callback_data': 'refresh_topics'}])
+                run.briefing.payload = BriefingPayload(text=TrendMatcher.format_telegram_card(topics), rows=rows)
+                run.briefing.payload_sha256 = bound_input_hash(run.briefing.payload.model_dump(mode='json'))
+                self._event(run, 'briefing_payload_frozen')
+            if bound_input_hash(run.briefing.payload.model_dump(mode='json')) != run.briefing.payload_sha256:
+                reason = 'telegram_briefing_payload_changed'
+                raise ValueError(reason)
+            payload = {'chat_id': run.briefing.chat_id, **run.briefing.payload.model_dump(mode='json')}
+            self._event(run, 'briefing_started')
+            await (sender or self.briefing_sender or send_briefing)(payload)
+            run.briefing.delivered = True
+            run.failures.pop('briefing', None)
+            self._event(run, 'briefing_completed', elapsed_seconds=time.monotonic()-started)
+            return True
+        except Exception as error:
+            run.status = 'NEEDS_RESEARCH'
+            run.failures['briefing'] = {'status': run.status, 'reason_codes': [reason], 'error': type(error).__name__}
+            self._event(run, 'briefing_failed', 'failure', elapsed_seconds=time.monotonic()-started)
+            return False
+
     async def _call(self, fn, *args):
         if inspect.iscoroutinefunction(fn):
             return await fn(*args)
@@ -132,13 +189,13 @@ class WorkflowService:
             run.failures.setdefault(name, {'status': run.status, 'reason_codes': [name + '_failed'], 'error': type(error).__name__})
             self._event(run, name + '_failed', 'failure', error=type(error).__name__, elapsed_seconds=time.monotonic()-started)
             return None
-    async def resume(self, run_id):
+    async def resume(self, run_id, *, briefing_sender=None):
         with self.store.lock(run_id):
             run = self.status(run_id)
             category = 'recovery' if run.failures or run.publication_target else 'routine'
             self._event(run, 'resume', category)
             if not run.publication_target:
-                return await self._resume(run)
+                return await self._resume(run, briefing_sender=briefing_sender)
             target = dict(run.publication_target)
             journal_path = self.pipeline(run).store.directory(target['draft_id']) / 'publication.json'
             journal = json.loads(journal_path.read_text(encoding='utf-8')) if journal_path.exists() else {}
@@ -147,8 +204,17 @@ class WorkflowService:
         # Release the run lock before the publisher acquires its reservation.
         await self.publish(run_id, target['draft_id'], target['content_sha256'], reviewer=target['reviewer'], reconcile=reconcile)
         return self.status(run_id)
-    async def _resume(self, run):
+    async def _resume(self, run, *, briefing_sender=None):
         directory = self.store.directory(run.id)
+        if run.briefing is not None:
+            from src.workflow.telegram import configured_recipient
+            try:
+                current = configured_recipient()
+            except ValueError:
+                current = None
+            if current != (run.briefing.chat_id, run.briefing.user_id):
+                await self._deliver_briefing(run, briefing_sender)
+                return run
         profile = await self._stage(run, 'profile', self.adapters.profile, run.days, directory)
         if profile is None: return run
         items = await self._stage(run, 'collection', self.adapters.collect)
@@ -161,6 +227,8 @@ class WorkflowService:
             context = UserContext.model_validate(profile.get('user_context', {}))
             run.checkpoints['topics'] = [pipeline.register_topic(CuratedTopic.model_validate(t), user_context=context) for t in topics]
             self._event(run, 'topics_frozen')
+        if run.briefing is not None and not await self._deliver_briefing(run, briefing_sender):
+            return run
         if run.selected_rank is None:
             run.status = 'AWAITING_SELECTION' if topics else 'NEEDS_RESEARCH'
             self.store.save(run)

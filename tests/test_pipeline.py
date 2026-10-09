@@ -227,7 +227,8 @@ def test_selection_and_blocked_review_never_offer_approval(tmp_path, drafting_in
     app.current_topics = {1: pipeline.store.topic(topic_id)}
     from src.profiler.interest_profiler import UserProfile
     app.profiler.build_profile = lambda **kwargs: UserProfile(core_interests=[], knowledge_depth={}, avoid_topics=[], target_domains=[], search_keywords=[])
-    app.collector.collect_all = AsyncMock(return_value=[])
+    from src.collector.base import TrendItem
+    app.collector.collect_all = AsyncMock(return_value=[TrendItem(title="Queue", url="https://example.invalid/queue", source="fixture")])
     app.matcher.curate_top_5 = lambda *args: [pipeline.store.topic(topic_id)]
     bot = SimpleNamespace(send_message=AsyncMock(), send_document=AsyncMock())
     run = asyncio.run(app.trigger_briefing(context=SimpleNamespace(bot=bot)))

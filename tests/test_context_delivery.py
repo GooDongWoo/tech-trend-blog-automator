@@ -44,7 +44,8 @@ def briefing_app(tmp_path, drafting_input, monkeypatch, *, damage_before_registr
     profile = UserProfile(core_interests=[], knowledge_depth={}, avoid_topics=[], target_domains=[], search_keywords=[], user_context=context)
     app = TrendBotApp(pipeline=pipeline)
     app.profiler.build_profile = lambda **kwargs: profile
-    app.collector.collect_all = AsyncMock(return_value=[])
+    from src.collector.base import TrendItem
+    app.collector.collect_all = AsyncMock(return_value=[TrendItem(title="Queue", url="https://example.invalid/queue", source="fixture")])
     app.matcher.curate_top_5 = lambda *args: [pipeline.store.topic(topic_id)]
     bot = SimpleNamespace(send_message=AsyncMock(), send_document=AsyncMock())
     asyncio.run(app.trigger_briefing(context=SimpleNamespace(bot=bot)))

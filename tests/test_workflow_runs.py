@@ -240,7 +240,8 @@ def test_default_adapters_reuse_frozen_research_and_record_actual_calls(tmp_path
     class Collector:
         async def collect_all(self, *, limit_per_source):
             calls['collection'] += 1
-            return []
+            from src.collector.base import TrendItem
+            return [TrendItem(title=topic.title, url=topic.url, source=topic.source)]
     class Matcher:
         def curate_top_5(self, profile, items):
             calls['curation'] += 1
