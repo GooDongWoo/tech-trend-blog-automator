@@ -22,12 +22,20 @@ def _sdk_transport(*, provider, model, prompt, timeout, max_output_tokens, confi
                              retry_options=types.HttpRetryOptions(attempts=1))) as client:
             response = client.models.generate_content(model=model, contents=prompt,
                 config=types.GenerateContentConfig(max_output_tokens=max_output_tokens))
-            return response.text or ''
+            return response.text or '', _usage(getattr(response, 'usage_metadata', None), 'prompt_token_count', 'candidates_token_count', 'total_token_count')
     from openai import OpenAI
     with OpenAI(api_key=config.openai_api_key, timeout=timeout, max_retries=0) as client:
         response = client.chat.completions.create(model=model,
             messages=[{'role': 'user', 'content': prompt}], max_completion_tokens=max_output_tokens)
-        return response.choices[0].message.content or ''
+        return response.choices[0].message.content or '', _usage(getattr(response, 'usage', None), 'prompt_tokens', 'completion_tokens', 'total_tokens')
+
+
+def _usage(record, *names):
+    if record is None:
+        return None
+    values = [getattr(record, name, None) for name in names]
+    return dict(zip(('input_tokens', 'output_tokens', 'total_tokens'),
+                    [v if isinstance(v, int) and v >= 0 else None for v in values]))
 
 
 class ModelClient:
@@ -50,7 +58,8 @@ class ModelClient:
                 raise ValueError('fallback models require gemini:model or openai:model')
             if (provider, model) not in models:
                 models.append((provider, model))
-        deadline = self.clock() + cfg.llm_stage_timeout_seconds
+        started = self.clock()
+        deadline = started + cfg.llm_stage_timeout_seconds
         record = {'stage': stage, 'prompt_sha256': hashlib.sha256(prompt.encode()).hexdigest(),
                   'max_output_tokens': max_output_tokens, 'attempts': [], 'status': 'unavailable'}
         try:
@@ -66,13 +75,18 @@ class ModelClient:
                     record['status'] = 'unavailable'
                     raise ModelCallError('llm_unavailable')
                 timeout = min(cfg.llm_request_timeout_seconds, remaining)
-                entry = {'provider': provider, 'model': model, 'timeout_seconds': timeout}
+                entry = {'provider': provider, 'model': model, 'timeout_seconds': timeout, 'usage': None}
                 record['attempts'].append(entry)
+                attempt_started = self.clock()
                 try:
                     request = dict(provider=provider, model=model, prompt=prompt,
                                    timeout=timeout, max_output_tokens=max_output_tokens)
-                    output = self.transport(**request) if self.transport else _sdk_transport(**request, config=cfg)
+                    if self.transport:
+                        output = self.transport(**request)
+                    else:
+                        output, entry['usage'] = _sdk_transport(**request, config=cfg)
                 except Exception as error:
+                    entry['elapsed_seconds'] = self.clock() - attempt_started
                     code = getattr(error, 'status_code', None) or getattr(error, 'code', None)
                     entry['http_status'] = code if isinstance(code, int) else None
                     retryable = code in (408, 429) or isinstance(code, int) and 500 <= code < 600
@@ -87,6 +101,7 @@ class ModelClient:
                     if attempt + 1 < cfg.llm_max_attempts:
                         self.sleep(min(2 ** attempt, remaining))
                     continue
+                entry['elapsed_seconds'] = self.clock() - attempt_started
                 if self.clock() >= deadline:
                     record['status'] = 'deadline_exhausted'
                     raise ModelCallError('llm_deadline_exhausted')
@@ -98,6 +113,7 @@ class ModelClient:
                 return output
             raise ModelCallError('llm_attempts_exhausted')
         finally:
+            record['elapsed_seconds'] = self.clock() - started
             if artifact_dir is not None:
                 try:
                     Path(artifact_dir).mkdir(parents=True, exist_ok=True)

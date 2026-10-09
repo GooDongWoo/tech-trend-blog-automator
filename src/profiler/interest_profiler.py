@@ -76,7 +76,7 @@ class InterestProfiler:
         self.rag = RAGChecker(self.vault_path, self.daemon_url)
 
     def _call_llm(self, prompt: str) -> str:
-        return ModelClient().generate("profile", prompt)
+        return ModelClient().generate("profile", prompt, artifact_dir=getattr(self, "artifact_dir", None))
 
     def build_profile(self, days: int = 14, *, statements=(), run_logs=()) -> UserProfile:
         notes = self.scanner.get_recent_daily_notes(days=days)[:5] + self.scanner.get_active_projects()[:3]

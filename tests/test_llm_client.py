@@ -125,3 +125,40 @@ def test_sdk_limits_without_network(monkeypatch, provider):
         assert captured['client']['max_retries'] == 0
         assert 0 < captured['client']['timeout'] <= 30
         assert captured['request']['max_completion_tokens'] == 17
+
+@pytest.mark.parametrize('provider', ['gemini', 'openai'])
+def test_sdk_usage_and_measured_elapsed_are_captured(monkeypatch, tmp_path, provider):
+    from types import SimpleNamespace
+    from src.llm.client import ModelClient
+    now = [0.0]
+    def generate(**request):
+        now[0] += 1.25
+        return SimpleNamespace(text='answer', choices=[SimpleNamespace(message=SimpleNamespace(content='answer'))],
+            usage_metadata=SimpleNamespace(prompt_token_count=9, candidates_token_count=4, total_token_count=13),
+            usage=SimpleNamespace(prompt_tokens=9, completion_tokens=4, total_tokens=13))
+    class Client:
+        def __init__(self, **kwargs):
+            self.models = SimpleNamespace(generate_content=generate)
+            self.chat = SimpleNamespace(completions=SimpleNamespace(create=generate))
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+    if provider == 'gemini':
+        from google import genai
+        monkeypatch.setattr(genai, 'Client', Client)
+        cfg = config()
+    else:
+        import openai
+        monkeypatch.setattr(openai, 'OpenAI', Client)
+        cfg = Settings(_env_file=None, GEMINI_API_KEY='', OPENAI_API_KEY='secret')
+    assert ModelClient(config=cfg, clock=lambda: now[0]).generate('draft', 'private', artifact_dir=tmp_path) == 'answer'
+    record = json.loads(next(tmp_path.glob('*.json')).read_text())
+    assert record['elapsed_seconds'] == 1.25
+    assert record['attempts'][0]['usage'] == {'input_tokens': 9, 'output_tokens': 4, 'total_tokens': 13}
+
+
+def test_text_transport_usage_is_unknown(tmp_path):
+    from src.llm.client import ModelClient
+    ModelClient(transport=lambda **_: 'answer', config=config()).generate('draft', 'private', artifact_dir=tmp_path)
+    record = json.loads(next(tmp_path.glob('*.json')).read_text())
+    assert record['attempts'][0]['usage'] is None
+    assert record['elapsed_seconds'] >= 0

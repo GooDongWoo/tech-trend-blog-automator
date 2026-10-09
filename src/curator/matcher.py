@@ -25,7 +25,7 @@ class TrendMatcher:
         pass
 
     def _call_llm(self, prompt: str) -> str:
-        return ModelClient().generate("curate", prompt)
+        return ModelClient().generate("curate", prompt, artifact_dir=getattr(self, "artifact_dir", None))
 
     def curate_top_5(self, profile: UserProfile, items: List[TrendItem]) -> List[CuratedTopic]:
         """Select and format Top 5 topics matching user's profile."""
