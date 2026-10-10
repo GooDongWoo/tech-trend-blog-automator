@@ -35,14 +35,17 @@ logger = logging.getLogger(__name__)
 class TrendBotApp:
     """Telegram Bot application managing daily briefings, user selection, and blog publishing."""
 
-    def __init__(self, *, pipeline: EditorialPipeline | None = None, publisher=None, sync=None, workflow=None):
+    def __init__(self, *, pipeline: EditorialPipeline | None = None, publisher=None, sync=None, workflow=None, workflow_root=None):
         self.profiler = InterestProfiler()
         self.collector = TrendOrchestrator()
         self.matcher = TrendMatcher()
         self.pipeline = pipeline or EditorialPipeline()
         self.publisher = publisher or GitPublisher()
         self.sync = sync or ObsidianSync()
-        self.workflow = workflow or WorkflowService(self.pipeline.store.root / 'workflow', writer=self.pipeline.writer,
+        root = workflow_root
+        if root is None and pipeline is not None:
+            root = self.pipeline.store.root / 'workflow'
+        self.workflow = workflow or WorkflowService(root, writer=self.pipeline.writer,
             adapters=ProductionAdapters(self.profiler, self.collector, self.matcher), publisher=self.publisher, sync=self.sync)
         self.scheduler = AsyncIOScheduler()
 

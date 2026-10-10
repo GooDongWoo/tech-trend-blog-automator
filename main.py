@@ -55,6 +55,8 @@ def main(argv=None, *, service=None):
     for name in ("bot", "test-pipeline"):
         sub = commands.add_parser(name)
         sub.add_argument("--output-root", type=Path)
+        if name == "bot":
+            sub.add_argument("--workflow-root", type=Path)
     for name in ("request", "briefing", "send-briefing", "status", "resume", "select", "review", "revise", "approve", "trial", "publish", "review-legacy"):
         sub = commands.add_parser(name)
         sub.add_argument("--workflow-root", type=Path)
@@ -84,7 +86,8 @@ def main(argv=None, *, service=None):
         if args.command == "test-pipeline":
             asyncio.run(test_pipeline(output_root=args.output_root))
         else:
-            TrendBotApp().run()
+            TrendBotApp(workflow_root=args.workflow_root,
+                pipeline=EditorialPipeline(args.output_root) if args.output_root else None).run()
         return 0
     workflow = service or WorkflowService(args.workflow_root)
     def invoke(operation):

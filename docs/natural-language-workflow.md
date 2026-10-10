@@ -2,6 +2,17 @@
 
 저장소의 `.agents/skills/blog-workflow/SKILL.md`는 자연어 요청을 현재 `main.py` CLI로 연결한다. 기본 경로는 Vault 관심 → Telegram 후보 → 선택 → 원문 조사 → 검토본 → 특정 수정본 승인 → 명시적 발행이다. Vault 관심은 경험의 증거가 아니다. CLI 출력은 JSON이며 `run.id`를 보관해 후속 명령에 사용한다. 아래 `RUN`, `DRAFT`, `SHA`, `REVIEWER`는 출력에서 얻은 실제 값이다. `SHA`는 전체 SHA-256이고 `REVIEWER`는 저장된 `run.reviewer`다. 모든 명령에 같은 `--workflow-root`를 사용한다.
 
+CLI와 기본 bot의 workflow 저장 경로는 저장소의 `temp/workflow`다. 사용자 지정 경로로 후보를 만들었다면 실행 중인 bot에도 같은 경로를 전달한다. 상대 경로는 실행 작업 디렉터리 기준이므로 서로 다른 디렉터리에서 실행할 때는 동일한 절대 경로를 사용한다.
+
+```powershell
+python main.py bot --workflow-root temp/workflow
+# 사용자 지정 예: briefing과 bot에 동일한 경로 전달
+python main.py briefing --workflow-root C:/local/blog-runs
+python main.py bot --workflow-root C:/local/blog-runs
+```
+
+Telegram callback은 run ID와 순위만 전달하며 파일 경로를 포함하지 않는다. `bot --output-root`는 기존 로컬 검토 bundle의 review 저장 경로를 지정하며, 사용자 지정 workflow를 공유할 때는 `--workflow-root`를 명시한다.
+
 ## 후보와 작성
 
 “Vault 보고 주제 텔레그램으로 보내줘”:
