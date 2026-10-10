@@ -1,5 +1,11 @@
 # 변경 기록
 
+## 2026-10-11 — 자연어 workflow 최종 문서 검증
+
+- `b62a859` 전체 회귀에서 발행 후 sync-only 재시도 결함을 확인해 `5f3a726`에서 수정했다. 수정 집중 게이트 `21 passed in 697.17s`, recovery 독립 리뷰 Spec PASS / Quality APPROVED (0 findings), 최종 오프라인 전체 회귀 `522 passed in 2832.82s`를 확인했다. 이전 `517 passed, 1 failed`는 수정 전 실행 기록으로 남긴다.
+- 첫 UniSkill의 한 편 발행은 명시적으로 승인된 `reviewed_trial` 예외였으며, 전역 shadow와 production cutover 상태는 유지했다. 수동 조사·편집, 미확인 사람 점수·전체 비용, 확인되지 않은 사이트 배포 경계를 기록했다.
+- `5f3a726` 구현 브랜치는 `main`에 병합하거나 원격에 push하지 않았다. 현재 문서 검증은 31개 로컬 링크가 모두 존재하고 57개 변경 추적 파일의 비밀 패턴 검사에 일치가 없음을 확인했다. recovery compatibility 경계는 [workflow guide](natural-language-workflow.md)에 있다.
+
 ## 2026-10-09 — 자연어 durable workflow
 
 - repository `blog-workflow` skill과 실제 CLI 명령 안내를 추가했다. 기본 Vault→Telegram briefing, 저장 run 계속, 선택, 지시 기반 수정, 전체 검토 후 exact ID/hash 승인과 한 편 trial을 공유 서비스로 연결한다.

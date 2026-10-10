@@ -1,4 +1,18 @@
-# 리팩토링 구현 상태 — 2026-10-09
+# 리팩토링 구현 상태 — 2026-10-11
+
+## 자연어 workflow 최종 검증 상태
+
+현재 작업 브랜치는 `codex/natural-language-blog-workflow`, 최종 코드 HEAD는 `5f3a726`다. `main`은 `9e54331`이며 구현 브랜치는 병합·푸시되지 않았다. Task 1–5와 최종 recovery 변경의 독립 리뷰는 Spec PASS / Quality APPROVED, Critical·Important·Minor 지적 0건이다.
+
+현재 코드 전체 오프라인 게이트는 `.venv/Scripts/python.exe -X utf8 -m pytest -q --durations=10`에서 `522 passed in 2832.82s (0:47:12)`, exit 0이다. sync-only recovery 집중 게이트는 `21 passed in 697.17s`로 원 회귀, service restart, tamper matrix, legacy receipt 및 crash recovery 사례를 포함했다. 앞선 관련 회귀 114개와 추가 집중 회귀 4개도 통과했다. skill validator, CLI help, structured injected CLI rehearsal, 최신 로컬 문서 링크 31개(누락 0), 57개 변경 추적 파일의 비밀 패턴 검사(일치 0), whitespace 검사도 통과했다. 이전 `b62a859` 전체 게이트 `517 passed, 1 failed`는 수정 전 sync-only recovery 회귀로 보존한다. 2026-10-09의 `411 passed`는 그보다 더 이전 통합 기준의 역사적 결과다.
+
+Telegram 일반 경로는 계속 shadow다. 첫 UniSkill 실제 시험만 특정 검토본에 대해 승인된 한 편의 `reviewed_trial` 예외로 실제 발행·push 확인·Vault 동기화까지 완료했다. 이 예외는 전역 shadow 설정이나 production cutover를 바꾸지 않았다. 수동 원문 조사와 편집 개입이 포함됐고 모델 품질 향상, 블라인드 평가, 사이트 배포는 확인되지 않았다. 사람 점수·전체 비용 및 전체 pipeline 측정은 미확인이다.
+
+아래의 구현 내역과 과거 검증 기록은 이 최신 상태와 구분해 읽는다. 검증된 구현 브랜치는 main 병합, 원격 push, 실서비스 발행과 Vault 색인 없이 검토 가능한 상태다.
+
+---
+
+## 이전 통합 상태 — 2026-10-09
 
 자연어 workflow 구현 브랜치는 `codex/natural-language-blog-workflow`다. durable run/공유 승인, bounded model, primary research와 grounding, repository skill 및 오프라인 replay를 추가했다. 최종 독립 리뷰와 전체 회귀는 부모 통합 단계에서 수행하며 아래 411개 기록은 이전 병합 게이트다. 현재 전체 검증으로 재해석하지 않는다. 명령과 측정 경계는 [natural-language-workflow.md](natural-language-workflow.md)에 있다.
 

@@ -60,6 +60,10 @@ python main.py resume RUN --workflow-root temp/workflow
 
 이전에 명시적 발행 시도가 예약된 run은 같은 승인 ID/hash의 불확실한 push를 원격 SHA와 대조하거나 확인된 발행의 Vault sync만 재시도한다. 아직 발행을 시도하지 않은 승인 run의 `resume`은 발행을 시작하지 않는다. 명시적 수동 대조는 `publish ... --reconcile`도 지원한다. Vault 증분 색인은 실행하지 않는다.
 
+확인된 push 뒤에는 workflow checkpoint에 발행 당시의 불변 snapshot digest를 보관한다. `PUSHED` 단계와 이 digest가 일치하면 sync 재시도는 저장된 발행 artifact와 동기화 정보를 사용하며 push나 원격 재확인을 다시 하지 않는다. digest는 원 저장소·branch·push 목적지·commit·발행 경로·승인 및 reviewer·sync metadata·artifact에 묶이고 각 요소를 다시 비교한다.
+
+digest가 없는 이전 `PUSHED` 영수증은 기존처럼 전체 review bundle을 검증한 뒤 그 검증된 snapshot과 영수증이 일치할 때만 새 binding으로 승격한다. 따라서 온전한 구형 bundle은 복구할 수 있지만, 이미 수정된 구형 bundle은 자동 승격하지 않고 오류로 남겨 운영자 확인이 필요하다. push 성공 직후 digest를 저장하기 전에 프로세스나 저장소가 실패한 경우도 구형 경로를 따르며, bundle이 수정됐다면 sync 복구를 차단한다. workflow 기록은 로컬 신뢰 경계 안의 authorization record이며 외부 서명 영수증은 아니다.
+
 ## 검증과 측정 계약
 
 `tests/test_workflow_replay.py`는 공개 최소 UniSkill 발췌와 합성 응답, 주입된 `ModelClient`, fake Telegram, 임시 Git/fake push, 임시 Vault로 중단·재시작·수정·전체 검토·해시 승인·한 번의 발행·sync만 재시도를 확인한다. 실제 모델 생성 품질이나 실제 Telegram/GitHub 발행의 재현이 아니다. 원문 자동 추적, scoped table context, provider 실패와 문장 span 수정은 기존 `test_primary_research.py`, `test_korean_grounding.py`, `test_llm_client.py`, `test_drafting.py`, `test_workflow_runs.py`의 집중 회귀로 따로 검증한다.
