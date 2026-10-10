@@ -1,5 +1,11 @@
 # 변경 기록
 
+## 2026-10-11 — 자연어 workflow 메인 반영
+
+- 사용자 요청으로 구현 브랜치의 커밋 15개를 `main`에 fast-forward 병합했다. 통합 기준 `03c3e44`와 전체 검증 코드 `5f3a726` 사이 변경은 문서뿐이며, 기존 기능별 커밋을 보존했다.
+- 프로젝트 기본 폴더에 자연어 skill, durable workflow, 원문 조사·근거 검토, 정확한 수정본 승인과 발행 복구 경로를 반영했다. 실제 블로그·Vault 쓰기나 색인은 실행하지 않았다.
+- 기본 가상환경의 누락된 선언 의존성 `PyYAML`, `pypdf`, `pytest`를 `requirements-dev.txt`로 설치했다. CLI help, `pip check`, 검증 환경에서 메인 코드의 공유 경계 회귀 18개가 통과했다. 메인 환경의 발행 Git 테스트 파일을 제외한 추가 회귀는 `462 passed, 1 skipped in 96.82s`다. 선택적인 전체 로컬 논문 캡처가 없어 1개를 건너뛰었고 공개 최소 fixture는 통과했다. 제외한 Git 발행·복구 59개를 포함한 작업 브랜치 전체 검증 522개와 범위를 구분해 기록한다.
+
 ## 2026-10-11 — 자연어 workflow 최종 문서 검증
 
 - `b62a859` 전체 회귀에서 발행 후 sync-only 재시도 결함을 확인해 `5f3a726`에서 수정했다. 수정 집중 게이트 `21 passed in 697.17s`, recovery 독립 리뷰 Spec PASS / Quality APPROVED (0 findings), 최종 오프라인 전체 회귀 `522 passed in 2832.82s`를 확인했다. 이전 `517 passed, 1 failed`는 수정 전 실행 기록으로 남긴다.

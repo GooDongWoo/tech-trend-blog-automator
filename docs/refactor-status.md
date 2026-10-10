@@ -2,13 +2,15 @@
 
 ## 자연어 workflow 최종 검증 상태
 
-현재 작업 브랜치는 `codex/natural-language-blog-workflow`, 최종 코드 HEAD는 `5f3a726`다. `main`은 `9e54331`이며 구현 브랜치는 병합·푸시되지 않았다. Task 1–5와 최종 recovery 변경의 독립 리뷰는 Spec PASS / Quality APPROVED, Critical·Important·Minor 지적 0건이다.
+2026-10-11 사용자 요청으로 `codex/natural-language-blog-workflow`의 커밋 15개를 `main`에 fast-forward 병합했다. 통합 기준은 `03c3e44`, 전체 회귀를 통과한 코드 기준은 `5f3a726`이며 둘 사이 변경은 문서뿐이다. 기존 기능별 커밋을 보존했고 프로젝트 기본 폴더에도 자연어 skill, CLI, workflow와 관련 문서가 반영됐다. Task 1–5와 최종 recovery 변경의 독립 리뷰는 Spec PASS / Quality APPROVED, Critical·Important·Minor 지적 0건이다.
 
-현재 코드 전체 오프라인 게이트는 `.venv/Scripts/python.exe -X utf8 -m pytest -q --durations=10`에서 `522 passed in 2832.82s (0:47:12)`, exit 0이다. sync-only recovery 집중 게이트는 `21 passed in 697.17s`로 원 회귀, service restart, tamper matrix, legacy receipt 및 crash recovery 사례를 포함했다. 앞선 관련 회귀 114개와 추가 집중 회귀 4개도 통과했다. skill validator, CLI help, structured injected CLI rehearsal, 최신 로컬 문서 링크 31개(누락 0), 57개 변경 추적 파일의 비밀 패턴 검사(일치 0), whitespace 검사도 통과했다. 이전 `b62a859` 전체 게이트 `517 passed, 1 failed`는 수정 전 sync-only recovery 회귀로 보존한다. 2026-10-09의 `411 passed`는 그보다 더 이전 통합 기준의 역사적 결과다.
+작업 브랜치의 검증 환경에서 실행한 전체 오프라인 게이트는 `.venv/Scripts/python.exe -X utf8 -m pytest -q --durations=10`에서 `522 passed in 2832.82s (0:47:12)`, exit 0이다. 메인에 병합된 코드·테스트는 이 검증 코드와 동일하다. sync-only recovery 집중 게이트는 `21 passed in 697.17s`로 원 회귀, service restart, tamper matrix, legacy receipt 및 crash recovery 사례를 포함했다. 앞선 관련 회귀 114개와 추가 집중 회귀 4개도 통과했다. skill validator, CLI help, structured injected CLI rehearsal, 최신 로컬 문서 링크 31개(누락 0), 57개 변경 추적 파일의 비밀 패턴 검사(일치 0), whitespace 검사도 통과했다. 이전 `b62a859` 전체 게이트 `517 passed, 1 failed`는 수정 전 sync-only recovery 회귀로 보존한다. 2026-10-09의 `411 passed`는 그보다 더 이전 통합 기준의 역사적 결과다.
 
 Telegram 일반 경로는 계속 shadow다. 첫 UniSkill 실제 시험만 특정 검토본에 대해 승인된 한 편의 `reviewed_trial` 예외로 실제 발행·push 확인·Vault 동기화까지 완료했다. 이 예외는 전역 shadow 설정이나 production cutover를 바꾸지 않았다. 수동 원문 조사와 편집 개입이 포함됐고 모델 품질 향상, 블라인드 평가, 사이트 배포는 확인되지 않았다. 사람 점수·전체 비용 및 전체 pipeline 측정은 미확인이다.
 
-아래의 구현 내역과 과거 검증 기록은 이 최신 상태와 구분해 읽는다. 검증된 구현 브랜치는 main 병합, 원격 push, 실서비스 발행과 Vault 색인 없이 검토 가능한 상태다.
+메인 기본 가상환경에는 이미 선언된 `PyYAML`, `pypdf`, `pytest`가 누락돼 있었다. `requirements-dev.txt`로 누락 의존성을 설치한 뒤 기본 CLI help와 `pip check`가 통과했다. 전체 검증에 사용한 환경으로 메인 코드의 CLI·bot root, capture identity, briefing, publication authorization 회귀 18개도 통과했다. 메인 기본 환경의 `pytest -q --ignore=tests/test_publish_workflow.py`는 `462 passed, 1 skipped in 96.82s`, exit 0이다. 제외한 임시 Git 발행·복구 59개는 위 작업 브랜치 전체 게이트에 포함됐다. 건너뛴 검사는 미추적 선택 입력 `temp/first-trial-captures/paper-pdf.json`이 필요한 전체 캡처 검사이며, 공개 최소 fixture 검사는 통과했다. 전체 논문을 저장소에 추가하거나 이 skip을 통과로 계산하지 않았다.
+
+아래의 구현 내역과 과거 검증 기록은 이 최신 상태와 구분해 읽는다. 이번 프로젝트 코드 통합은 실제 Telegram 전달·글 발행·Vault 쓰기나 색인을 실행하지 않았다.
 
 ---
 
