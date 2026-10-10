@@ -215,6 +215,7 @@ class GitPublisher:
         lock = None
         repo_lock = None
         push_confirmed = False
+        legacy_confirmed = False
         journal = {}
         try:
             artifact = store.get_draft(draft_id)
@@ -223,7 +224,7 @@ class GitPublisher:
             if artifact.status not in {DraftStatus.APPROVED, DraftStatus.PUBLISHED}:
                 raise ValueError("only APPROVED reviewed drafts may be published")
             from src.workflow.publication import authorize_publication
-            authorize_publication(store, artifact, reserve=True)
+            authorization = authorize_publication(store, artifact, reserve=True)
             directory = store.directory(draft_id)
             lock_path = directory / "publication.lock"
             try:
@@ -233,6 +234,7 @@ class GitPublisher:
             journal_path = directory / "publication.json"
             if journal_path.exists():
                 journal = json.loads(journal_path.read_text(encoding="utf-8"))
+                legacy_confirmed = journal.get('phase') == 'PUSHED' and not authorization.checkpoints.get('confirmed_publication')
                 if journal["repo"] != str(self.repo_path) or journal["content_sha256"] != expected_sha256:
                     raise ValueError("publication journal destination/hash mismatch")
             if reconcile and journal.get("phase") not in {"PUSHING", "PUSH_UNCERTAIN", "PUSHED"}:
@@ -287,7 +289,8 @@ class GitPublisher:
                             output.write(data)
                 journal = {"phase": "PREPARED", "repo": str(self.repo_path), "branch": branch, "remote": remote, "push_destination": push_destination,
                            "content_sha256": expected_sha256, "base_sha": base_sha, "paths": list(files), "info": info,
-                           "published_artifact": published.model_dump(mode="json"), "sync_status": "NOT_STARTED"}
+                           "published_artifact": published.model_dump(mode="json"), "sync_status": "NOT_STARTED",
+                           "authorization": dict(authorization.approval)}
                 write_json(journal_path, journal)
             if journal["phase"] == "PREPARED":
                 if self._git("rev-parse", "HEAD") != journal["base_sha"]:
@@ -366,6 +369,19 @@ class GitPublisher:
             if journal["phase"] != "PUSHED":
                 raise ValueError("unrecognized publication phase")
             push_confirmed = True
+            if legacy_confirmed:
+                # Legacy receipts have no separate frozen binding. Reconstruct
+                # their metadata only from the still-verified approved bundle.
+                reviewed = DraftArtifact.model_validate(dict(artifact.model_dump(mode='json'), status='APPROVED'))
+                files, published, info = self._snapshot(store, reviewed)
+                if (journal['paths'] != list(files) or journal['info'] != info
+                        or journal['published_artifact'] != published.model_dump(mode='json')):
+                    raise ValueError('confirmed legacy snapshot differs from reviewed bundle')
+            if 'authorization' not in journal:
+                journal['authorization'] = dict(authorization.approval)
+                write_json(journal_path, journal)
+            from src.workflow.publication import bind_confirmed_publication
+            bind_confirmed_publication(store, artifact, journal)
             self._record_checkpoint(publication_ref, journal)
             store.save(DraftArtifact.model_validate(journal["published_artifact"]))
             if sync is not None and journal["sync_status"] != "SYNCED":

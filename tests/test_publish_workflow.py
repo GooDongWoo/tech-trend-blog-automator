@@ -385,6 +385,114 @@ def test_post_publish_local_edit_does_not_push_during_sync_retry(publication, mo
     assert "unreviewed edit" not in next(p.sync.wiki_dir.glob("*.md")).read_text(encoding="utf-8")
 
 
+def test_restarted_service_resumes_confirmed_snapshot_after_review_edit(publication, monkeypatch):
+    from src.workflow.service import WorkflowService
+    p = publication
+    approve(p)
+    root = p.pipeline.store.root / 'workflow'
+    service = WorkflowService(root, publisher=p.publisher, sync=p.sync)
+    run = service.find_run(p.artifact.id)
+    original_sync = p.sync.sync_post
+    monkeypatch.setattr(p.sync, 'sync_post', lambda info: {'success': False, 'error': 'offline'})
+    first = asyncio.run(service.publish(run.id, p.artifact.id, p.artifact.content_sha256, reviewer=run.reviewer))
+    assert first['sync_status'] == 'SYNC_FAILED'
+    p.artifact.content_path.write_text('unreviewed edit')
+    monkeypatch.setattr(p.sync, 'sync_post', original_sync)
+    restarted = WorkflowService(root, publisher=p.publisher, sync=p.sync)
+    recovered = asyncio.run(restarted.resume(run.id))
+    assert recovered.publication['sync_status'] == 'SYNCED'
+    assert recovered.publication['commit_sha'] == first['commit_sha']
+    assert recovered.approval == run.approval and p.events == ['push']
+
+
+def test_confirmed_recovery_rejects_changed_authorization_or_journal(publication, monkeypatch):
+    from src.workflow.service import WorkflowService
+    from src.workflow.models import WorkflowRun
+    p = publication
+    approve(p)
+    monkeypatch.setattr(p.sync, 'sync_post', lambda info: {'success': False, 'error': 'offline'})
+    assert publish(p)['sync_status'] == 'SYNC_FAILED'
+    service = WorkflowService(p.pipeline.store.root / 'workflow')
+    baseline_run = service.find_run(p.artifact.id).model_dump_json()
+    path = p.artifact.content_path.parent / 'publication.json'
+    baseline_journal = path.read_text()
+    body = p.artifact.content_path.read_bytes()
+    # Restore the same confirmed receipt before each independent mutation.
+    for change in ('shadow', 'approval', 'delivery', 'target', 'trial_scope', 'reviewer',
+                   'snapshot', 'phase', 'repo', 'branch', 'push_destination', 'paths',
+                   'commit_sha', 'published_artifact', 'binding', 'all_reviewer_bindings'):
+        run = WorkflowRun.model_validate_json(baseline_run)
+        journal = json.loads(baseline_journal)
+        if change == 'shadow':
+            run.mode = 'shadow'
+        elif change in {'approval', 'delivery', 'target', 'trial_scope'}:
+            getattr(run, 'publication_target' if change == 'target' else change)['reviewer'] = 'cli:other'
+        elif change == 'reviewer':
+            run.reviewer = 'cli:other'
+        elif change == 'all_reviewer_bindings':
+            run.reviewer = 'cli:other'
+            for field in ('approval', 'delivery', 'trial_scope', 'publication_target'):
+                getattr(run, field)['reviewer'] = 'cli:other'
+        elif change == 'binding':
+            run.checkpoints['confirmed_publication'] = '0' * 64
+        elif change == 'snapshot':
+            journal['info']['topic']['one_line_summary'] = 'unreviewed metadata'
+        elif change == 'phase':
+            journal['phase'] = 'COMMITTED'
+        elif change == 'paths':
+            journal['paths'].append('private.txt')
+        elif change == 'published_artifact':
+            journal['published_artifact']['review_sha256'] = '0' * 64
+        else:
+            journal[change] = '0' * 40 if change == 'commit_sha' else 'changed'
+        path.write_text(json.dumps(journal))
+        service.store.save(run)
+        p.artifact.content_path.write_bytes(b'unreviewed edit' if change == 'phase' else body)
+        result = publish(p)
+        assert not result['success'], change
+        assert p.events == ['push'] and not p.sync.wiki_dir.exists(), change
+
+
+def test_legacy_confirmed_receipt_rebinds_only_verified_snapshot(publication, monkeypatch):
+    from src.workflow.service import WorkflowService
+    p = publication
+    approve(p)
+    original_sync = p.sync.sync_post
+    monkeypatch.setattr(p.sync, 'sync_post', lambda info: {'success': False, 'error': 'offline'})
+    assert publish(p)['sync_status'] == 'SYNC_FAILED'
+    service = WorkflowService(p.pipeline.store.root / 'workflow')
+    run = service.find_run(p.artifact.id)
+    del run.checkpoints['confirmed_publication']
+    service.store.save(run)
+    path = p.artifact.content_path.parent / 'publication.json'
+    legacy = json.loads(path.read_text())
+    legacy.pop('authorization')
+    baseline = json.dumps(legacy)
+    journal = json.loads(baseline)
+    journal['info']['topic']['one_line_summary'] = 'unreviewed legacy metadata'
+    path.write_text(json.dumps(journal))
+    monkeypatch.setattr(p.sync, 'sync_post', original_sync)
+    rejected = publish(p)
+    assert 'legacy snapshot' in rejected['local_state_error']
+    assert not p.sync.wiki_dir.exists() and p.events == ['push']
+    path.write_text(baseline)
+    recovered = publish(p)
+    assert recovered['sync_status'] == 'SYNCED' and p.events == ['push']
+    assert service.status(run.id).checkpoints['confirmed_publication']
+
+
+def test_unconfirmed_push_retry_still_requires_reviewed_bundle(publication):
+    p = publication
+    approve(p)
+    p.state['push_error'] = '[rejected] fixture'
+    assert not publish(p)['success']
+    p.state['push_error'] = None
+    p.artifact.content_path.write_text('unreviewed edit')
+    result = publish(p)
+    assert not result['success'] and 'changed' in result['error']
+    assert p.events == ['push'] and not p.sync.wiki_dir.exists()
+
+
 def test_interrupted_commit_is_not_guessed_or_recommitted(publication):
     p = publication
     approve(p)

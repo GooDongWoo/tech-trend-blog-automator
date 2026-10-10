@@ -419,9 +419,15 @@ class WorkflowService:
         with self.store.lock(run_id):
             run = self.status(run_id)
             self._identity(run, reviewer)
-            artifact = self._current(run, draft_id, content_sha256)
-            from src.workflow.publication import authorize_publication
+            from src.workflow.publication import authorize_publication, confirmed_recovery
             pipeline = self.pipeline(run)
+            if draft_id != run.draft_id:
+                raise ValueError('draft is not current revision')
+            artifact = pipeline.get_draft(draft_id)
+            if artifact.content_sha256 != content_sha256:
+                raise ValueError('current content hash mismatch')
+            if not confirmed_recovery(pipeline.store, artifact, run):
+                artifact = self._current(run, draft_id, content_sha256)
             authorize_publication(pipeline.store, artifact)
             if run.publication and run.publication.get('success') and run.publication.get('sync_status') == 'SYNCED' and not run.publication.get('local_state_error'):
                 return run.publication
