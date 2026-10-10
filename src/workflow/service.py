@@ -8,6 +8,7 @@ import secrets
 import time
 from datetime import datetime, timezone
 
+from src.llm.captures import canonical_capture_paths
 from src.workflow.models import WorkflowRun, TelegramBriefing, BriefingPayload
 from src.workflow.store import RunStore, atomic_json
 from src.editorial.pipeline import EditorialPipeline
@@ -82,7 +83,7 @@ class WorkflowService:
         captures = set(self.store.directory(run.id).rglob('model-call-*.json'))
         if run.review_root and run.draft_id:
             captures.update(self.pipeline(run).store.directory(run.draft_id).rglob('model-call-*.json'))
-        run.usage_refs = sorted(str(p) for p in captures)
+        run.usage_refs = [str(p) for p in canonical_capture_paths(captures)]
         self.store.save(run)
     def _identity(self, run, reviewer):
         if not reviewer or reviewer != run.reviewer:

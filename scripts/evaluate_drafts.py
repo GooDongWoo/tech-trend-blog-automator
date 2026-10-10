@@ -165,7 +165,8 @@ def workflow_receipt(service, run_id, *, synthetic):
     run = service.status(run_id)
     events = run.events
     captures, errors = [], []
-    for ref in run.usage_refs:
+    from src.llm.captures import canonical_capture_paths
+    for ref in canonical_capture_paths(run.usage_refs):
         try:
             record = load_json(ref)
             if not isinstance(record, dict) or not isinstance(record.get('attempts'), list):
